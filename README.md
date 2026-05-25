@@ -21,6 +21,13 @@ flutter build ios --release
 flutter build web --release
 ```
 
+The GitHub Actions deployment workflow runs the deterministic unit and widget
+tests. Golden image baselines are kept for local visual checks:
+
+```sh
+flutter test test/golden_test.dart
+```
+
 ## Web deployment
 
 The production web app is deployed to Cloudflare Pages:
