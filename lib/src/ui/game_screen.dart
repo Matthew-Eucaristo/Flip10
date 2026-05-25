@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../game/game_controller.dart';
 import '../game/game_models.dart';
@@ -24,6 +26,13 @@ const _playerColors = [
   Color(0xFFF0C84B),
   Color(0xFF39B879),
 ];
+
+const _prefsPlayerCount = 'flip10.playerCount';
+const _prefsRuleset = 'flip10.ruleset';
+const _prefsTargetRounds = 'flip10.targetRounds';
+const _prefsRecentMatches = 'flip10.recentMatches';
+const _playerOptions = [1, 2, 3, 4];
+const _roundOptions = [1, 3, 5];
 
 String _statusCopy(GameSnapshot snapshot) {
   if (snapshot.phase != GamePhase.complete) {
@@ -97,6 +106,15 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> {
   late final GameController _controller = GameController();
+  List<String> _recentMatches = const [];
+  bool _isRolling = false;
+  int _rollToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
 
   @override
   void dispose() {
@@ -104,15 +122,109 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
-  void _newRound({int? playerCount, int? tileCount}) {
-    _controller.newRound(playerCount: playerCount, tileCount: tileCount);
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) {
+      return;
+    }
+
+    final playerCount = _supportedPlayerCount(prefs.getInt(_prefsPlayerCount));
+    final ruleset = GameRuleset.fromPresetName(prefs.getString(_prefsRuleset));
+    final targetRounds = _supportedTargetRounds(
+      prefs.getInt(_prefsTargetRounds),
+    );
+    setState(() {
+      _recentMatches = prefs.getStringList(_prefsRecentMatches) ?? const [];
+      _controller.newMatch(
+        playerCount: playerCount,
+        ruleset: ruleset,
+        targetRounds: targetRounds,
+      );
+    });
+  }
+
+  Future<void> _savePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final match = _controller.match;
+    await prefs.setInt(_prefsPlayerCount, match.playerCount);
+    await prefs.setString(_prefsRuleset, match.ruleset.preset.name);
+    await prefs.setInt(_prefsTargetRounds, match.targetRounds);
+  }
+
+  Future<void> _saveRecentMatchIfComplete() async {
+    final match = _controller.match;
+    if (!match.isComplete) {
+      return;
+    }
+
+    final summary = _matchSummary(match);
+    final recent = [
+      summary,
+      ..._recentMatches.where((item) => item != summary),
+    ].take(5).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_prefsRecentMatches, recent);
+    if (mounted) {
+      setState(() {
+        _recentMatches = recent;
+      });
+    }
+  }
+
+  String _matchSummary(MatchSnapshot match) {
+    final winners = match.winnerIndexes
+        .map((index) => 'Player ${index + 1}')
+        .join(' and ');
+    final best = match.winnerIndexes.isEmpty
+        ? null
+        : match.cumulativeScores[match.winnerIndexes.first];
+    return '$winners - $best total - ${match.ruleset.name} - ${match.targetRounds} rounds';
+  }
+
+  void _newMatch({int? playerCount, GameRuleset? ruleset, int? targetRounds}) {
+    _rollToken++;
+    if (_isRolling) {
+      setState(() {
+        _isRolling = false;
+      });
+    }
+    _controller.newMatch(
+      playerCount: playerCount,
+      ruleset: ruleset,
+      targetRounds: targetRounds,
+    );
+    HapticFeedback.selectionClick();
+    _savePreferences();
     _announce(
       '${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
     );
   }
 
-  void _roll() {
+  void _nextRound() {
+    _controller.nextRound();
+    HapticFeedback.selectionClick();
+    _announce(
+      '${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
+    );
+  }
+
+  Future<void> _roll() async {
+    if (_isRolling || _controller.snapshot.phase != GamePhase.waitingForRoll) {
+      return;
+    }
+    setState(() {
+      _isRolling = true;
+    });
+    final rollToken = ++_rollToken;
+    HapticFeedback.lightImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+    if (!mounted || rollToken != _rollToken) {
+      return;
+    }
     _controller.roll();
+    setState(() {
+      _isRolling = false;
+    });
     _announce(
       '${_statusCopy(_controller.snapshot)}. ${_actionDetail(_controller.snapshot)}',
     );
@@ -125,11 +237,13 @@ class _GameScreenState extends State<GameScreen> {
     if (before.length == after.length && before.containsAll(after)) {
       return;
     }
+    HapticFeedback.selectionClick();
     _announce(_actionDetail(_controller.snapshot));
   }
 
   void _selectMove(List<int> move) {
     _controller.selectMove(move);
+    HapticFeedback.selectionClick();
     _announce(
       'Selected ${move.join(' plus ')}. ${_actionDetail(_controller.snapshot)}',
     );
@@ -138,6 +252,8 @@ class _GameScreenState extends State<GameScreen> {
   void _closeSelection() {
     final total = _controller.snapshot.selectedTotal;
     _controller.closeSelection();
+    HapticFeedback.mediumImpact();
+    _saveRecentMatchIfComplete();
     _announce(
       'Closed $total. ${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
     );
@@ -146,6 +262,8 @@ class _GameScreenState extends State<GameScreen> {
   void _scoreBlockedTurn() {
     final score = _controller.snapshot.activePlayer.remainingTotal;
     _controller.scoreBlockedTurn();
+    HapticFeedback.mediumImpact();
+    _saveRecentMatchIfComplete();
     _announce('Scored $score. ${_statusCopy(_controller.snapshot)}.');
   }
 
@@ -169,6 +287,7 @@ class _GameScreenState extends State<GameScreen> {
       listenable: _controller,
       builder: (context, _) {
         final snapshot = _controller.snapshot;
+        final match = _controller.match;
 
         return Scaffold(
           body: SafeArea(
@@ -187,27 +306,38 @@ class _GameScreenState extends State<GameScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        _Header(snapshot: snapshot, onNewRound: _newRound),
+                        _Header(
+                          snapshot: snapshot,
+                          match: match,
+                          recentMatches: _recentMatches,
+                          onNewMatch: () => _newMatch(),
+                        ),
                         const SizedBox(height: 14),
                         _SetupBar(
-                          snapshot: snapshot,
+                          match: match,
                           onPlayersChanged: (count) {
-                            _newRound(playerCount: count);
+                            _newMatch(playerCount: count);
                           },
-                          onTileCountChanged: (count) {
-                            _newRound(tileCount: count);
+                          onRulesetChanged: (ruleset) {
+                            _newMatch(ruleset: ruleset);
+                          },
+                          onTargetRoundsChanged: (rounds) {
+                            _newMatch(targetRounds: rounds);
                           },
                         ),
                         const SizedBox(height: 14),
                         Expanded(
                           child: _ResponsivePlayArea(
                             snapshot: snapshot,
+                            match: match,
+                            isRolling: _isRolling,
                             onRoll: _roll,
                             onTilePressed: _toggleTile,
                             onMovePressed: _selectMove,
                             onClose: _closeSelection,
                             onScore: _scoreBlockedTurn,
-                            onNewRound: _newRound,
+                            onNextRound: _nextRound,
+                            onNewMatch: () => _newMatch(),
                           ),
                         ),
                       ],
@@ -223,24 +353,40 @@ class _GameScreenState extends State<GameScreen> {
   }
 }
 
+int _supportedPlayerCount(int? playerCount) {
+  final value = playerCount ?? 1;
+  return value.clamp(_playerOptions.first, _playerOptions.last).toInt();
+}
+
+int _supportedTargetRounds(int? targetRounds) {
+  final value = targetRounds ?? 3;
+  return _roundOptions.contains(value) ? value : 3;
+}
+
 class _ResponsivePlayArea extends StatelessWidget {
   const _ResponsivePlayArea({
     required this.snapshot,
+    required this.match,
+    required this.isRolling,
     required this.onRoll,
     required this.onTilePressed,
     required this.onMovePressed,
     required this.onClose,
     required this.onScore,
-    required this.onNewRound,
+    required this.onNextRound,
+    required this.onNewMatch,
   });
 
   final GameSnapshot snapshot;
+  final MatchSnapshot match;
+  final bool isRolling;
   final VoidCallback onRoll;
   final ValueChanged<int> onTilePressed;
   final ValueChanged<List<int>> onMovePressed;
   final VoidCallback onClose;
   final VoidCallback onScore;
-  final VoidCallback onNewRound;
+  final VoidCallback onNextRound;
+  final VoidCallback onNewMatch;
 
   @override
   Widget build(BuildContext context) {
@@ -249,15 +395,18 @@ class _ResponsivePlayArea extends StatelessWidget {
         final isCompact = constraints.maxWidth < 520;
         final board = _BoardTable(
           snapshot: snapshot,
+          match: match,
+          isRolling: isRolling,
           showActions: !isCompact,
           onRoll: onRoll,
           onTilePressed: onTilePressed,
           onMovePressed: onMovePressed,
           onClose: onClose,
           onScore: onScore,
-          onNewRound: onNewRound,
+          onNextRound: onNextRound,
+          onNewMatch: onNewMatch,
         );
-        final panel = _RoundPanel(snapshot: snapshot);
+        final panel = _RoundPanel(snapshot: snapshot, match: match);
 
         if (constraints.maxWidth >= 860) {
           return Row(
@@ -296,10 +445,13 @@ class _ResponsivePlayArea extends StatelessWidget {
             const SizedBox(height: 10),
             _MobileActionDock(
               snapshot: snapshot,
+              match: match,
+              isRolling: isRolling,
               onRoll: onRoll,
               onClose: onClose,
               onScore: onScore,
-              onNewRound: onNewRound,
+              onNextRound: onNextRound,
+              onNewMatch: onNewMatch,
             ),
           ],
         );
@@ -309,10 +461,17 @@ class _ResponsivePlayArea extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.snapshot, required this.onNewRound});
+  const _Header({
+    required this.snapshot,
+    required this.match,
+    required this.recentMatches,
+    required this.onNewMatch,
+  });
 
   final GameSnapshot snapshot;
-  final VoidCallback onNewRound;
+  final MatchSnapshot match;
+  final List<String> recentMatches;
+  final VoidCallback onNewMatch;
 
   @override
   Widget build(BuildContext context) {
@@ -350,10 +509,15 @@ class _Header extends StatelessWidget {
       ],
     );
 
-    final action = OutlinedButton.icon(
-      onPressed: onNewRound,
+    final helpAction = IconButton.outlined(
+      onPressed: () => _showRulesSheet(context, match, recentMatches),
+      icon: const Icon(Icons.help_outline_rounded),
+      tooltip: 'Rules and recent matches',
+    );
+    final newMatchAction = OutlinedButton.icon(
+      onPressed: onNewMatch,
       icon: const Icon(Icons.refresh_rounded),
-      label: const Text('New round'),
+      label: const Text('New match'),
     );
 
     return LayoutBuilder(
@@ -364,7 +528,14 @@ class _Header extends StatelessWidget {
             children: [
               title,
               const SizedBox(height: 12),
-              Align(alignment: Alignment.centerRight, child: action),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  helpAction,
+                  const SizedBox(width: 8),
+                  newMatchAction,
+                ],
+              ),
             ],
           );
         }
@@ -372,10 +543,26 @@ class _Header extends StatelessWidget {
         return Row(
           children: [
             Expanded(child: title),
-            action,
+            helpAction,
+            const SizedBox(width: 8),
+            newMatchAction,
           ],
         );
       },
+    );
+  }
+
+  void _showRulesSheet(
+    BuildContext context,
+    MatchSnapshot match,
+    List<String> recentMatches,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: _panel,
+      builder: (context) =>
+          _RulesSheet(match: match, recentMatches: recentMatches),
     );
   }
 }
@@ -396,45 +583,190 @@ class _BrandMark extends StatelessWidget {
   }
 }
 
-class _SetupBar extends StatelessWidget {
-  const _SetupBar({
-    required this.snapshot,
-    required this.onPlayersChanged,
-    required this.onTileCountChanged,
+class _RulesSheet extends StatelessWidget {
+  const _RulesSheet({required this.match, required this.recentMatches});
+
+  final MatchSnapshot match;
+  final List<String> recentMatches;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Rules',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: _ivory,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _RuleLine(
+              icon: Icons.casino_rounded,
+              title: 'Roll and close tiles',
+              body:
+                  'Choose open tiles matching the dice total. Closed tiles stay down for that turn.',
+            ),
+            _RuleLine(
+              icon: Icons.flag_rounded,
+              title: 'Blocked turns score open tiles',
+              body:
+                  'When no legal move exists, the remaining open tiles become that player\'s score.',
+            ),
+            _RuleLine(
+              icon: Icons.emoji_events_rounded,
+              title: 'Lowest total wins',
+              body:
+                  'A match adds each round score. The lowest total after ${match.targetRounds} rounds wins.',
+            ),
+            _RuleLine(
+              icon: Icons.tune_rounded,
+              title: match.ruleset.name,
+              body: match.ruleset.useSingleDieWhenLow
+                  ? 'Uses ${match.ruleset.tileCount} tiles and rolls one die once every open tile is 6 or lower.'
+                  : 'Uses ${match.ruleset.tileCount} tiles and rolls two dice throughout the round.',
+            ),
+            if (recentMatches.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Text(
+                'Recent',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: _ivory,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final item in recentMatches)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    item,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _ivory.withValues(alpha: 0.74),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RuleLine extends StatelessWidget {
+  const _RuleLine({
+    required this.icon,
+    required this.title,
+    required this.body,
   });
 
-  final GameSnapshot snapshot;
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: _accent, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: _ivory,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: _ivory.withValues(alpha: 0.72),
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SetupBar extends StatelessWidget {
+  const _SetupBar({
+    required this.match,
+    required this.onPlayersChanged,
+    required this.onRulesetChanged,
+    required this.onTargetRoundsChanged,
+  });
+
+  final MatchSnapshot match;
   final ValueChanged<int> onPlayersChanged;
-  final ValueChanged<int> onTileCountChanged;
+  final ValueChanged<GameRuleset> onRulesetChanged;
+  final ValueChanged<int> onTargetRoundsChanged;
 
   @override
   Widget build(BuildContext context) {
     final playerSelector = _SegmentGroup(
       label: 'Players',
       child: SegmentedButton<int>(
-        segments: const [
-          ButtonSegment(value: 1, label: Text('1')),
-          ButtonSegment(value: 2, label: Text('2')),
-          ButtonSegment(value: 3, label: Text('3')),
-          ButtonSegment(value: 4, label: Text('4')),
+        segments: [
+          for (final count in _playerOptions)
+            ButtonSegment(value: count, label: Text('$count')),
         ],
-        selected: {snapshot.players.length},
+        selected: {match.playerCount},
         onSelectionChanged: (selection) {
           onPlayersChanged(selection.first);
         },
       ),
     );
-    final tileSelector = _SegmentGroup(
-      label: 'Tiles',
-      child: SegmentedButton<int>(
-        segments: const [
-          ButtonSegment(value: 9, label: Text('9')),
-          ButtonSegment(value: 10, label: Text('10')),
-          ButtonSegment(value: 12, label: Text('12')),
+    final rulesetSelector = _SegmentGroup(
+      label: 'Rules',
+      child: SegmentedButton<RulesetPreset>(
+        segments: [
+          for (final ruleset in GameRuleset.presets)
+            ButtonSegment(
+              value: ruleset.preset,
+              label: Text('${ruleset.tileCount}'),
+              tooltip: ruleset.name,
+            ),
         ],
-        selected: {snapshot.tileCount},
+        selected: {match.ruleset.preset},
         onSelectionChanged: (selection) {
-          onTileCountChanged(selection.first);
+          onRulesetChanged(
+            GameRuleset.presets.firstWhere(
+              (ruleset) => ruleset.preset == selection.first,
+            ),
+          );
+        },
+      ),
+    );
+    final roundsSelector = _SegmentGroup(
+      label: 'Rounds',
+      child: SegmentedButton<int>(
+        segments: [
+          for (final rounds in _roundOptions)
+            ButtonSegment(value: rounds, label: Text('$rounds')),
+        ],
+        selected: {match.targetRounds},
+        onSelectionChanged: (selection) {
+          onTargetRoundsChanged(selection.first);
         },
       ),
     );
@@ -459,8 +791,13 @@ class _SetupBar extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   _SegmentGroup.stacked(
-                    label: 'Tiles',
-                    child: tileSelector.child,
+                    label: 'Rules',
+                    child: rulesetSelector.child,
+                  ),
+                  const SizedBox(height: 12),
+                  _SegmentGroup.stacked(
+                    label: 'Rounds',
+                    child: roundsSelector.child,
                   ),
                 ],
               );
@@ -471,7 +808,7 @@ class _SetupBar extends StatelessWidget {
               spacing: 16,
               runSpacing: 10,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: [playerSelector, tileSelector],
+              children: [playerSelector, rulesetSelector, roundsSelector],
             );
           },
         ),
@@ -516,23 +853,29 @@ class _SegmentGroup extends StatelessWidget {
 class _BoardTable extends StatefulWidget {
   const _BoardTable({
     required this.snapshot,
+    required this.isRolling,
     required this.showActions,
     required this.onRoll,
     required this.onTilePressed,
     required this.onMovePressed,
     required this.onClose,
     required this.onScore,
-    required this.onNewRound,
+    required this.match,
+    required this.onNextRound,
+    required this.onNewMatch,
   });
 
   final GameSnapshot snapshot;
+  final MatchSnapshot match;
+  final bool isRolling;
   final bool showActions;
   final VoidCallback onRoll;
   final ValueChanged<int> onTilePressed;
   final ValueChanged<List<int>> onMovePressed;
   final VoidCallback onClose;
   final VoidCallback onScore;
-  final VoidCallback onNewRound;
+  final VoidCallback onNextRound;
+  final VoidCallback onNewMatch;
 
   @override
   State<_BoardTable> createState() => _BoardTableState();
@@ -598,7 +941,7 @@ class _BoardTableState extends State<_BoardTable> {
                   children: [
                     _ActivePlayerBand(player: activePlayer),
                     const SizedBox(height: 18),
-                    _DiceRow(roll: roll),
+                    _DiceRow(roll: roll, isRolling: widget.isRolling),
                     const SizedBox(height: 16),
                     _ActionPrompt(snapshot: snapshot),
                     const SizedBox(height: 16),
@@ -621,10 +964,13 @@ class _BoardTableState extends State<_BoardTable> {
                       const SizedBox(height: 12),
                       _ActionRow(
                         snapshot: snapshot,
+                        isRolling: widget.isRolling,
                         onRoll: widget.onRoll,
                         onClose: widget.onClose,
                         onScore: widget.onScore,
-                        onNewRound: widget.onNewRound,
+                        match: widget.match,
+                        onNextRound: widget.onNextRound,
+                        onNewMatch: widget.onNewMatch,
                       ),
                     ],
                   ],
@@ -733,15 +1079,21 @@ class _ActivePlayerBand extends StatelessWidget {
 }
 
 class _DiceRow extends StatelessWidget {
-  const _DiceRow({required this.roll});
+  const _DiceRow({required this.roll, required this.isRolling});
 
   final DiceRoll? roll;
+  final bool isRolling;
 
   @override
   Widget build(BuildContext context) {
+    final values = isRolling ? null : roll?.values;
     return Semantics(
       liveRegion: true,
-      label: roll == null ? 'Dice not rolled' : 'Rolled ${roll!.total}',
+      label: isRolling
+          ? 'Rolling dice'
+          : roll == null
+          ? 'Dice not rolled'
+          : 'Rolled ${roll!.total}',
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 220),
         switchInCurve: Curves.easeOutBack,
@@ -754,13 +1106,27 @@ class _DiceRow extends StatelessWidget {
         },
         child: Row(
           key: ValueKey(
-            roll == null ? 'empty' : '${roll!.first}-${roll!.second}',
+            isRolling
+                ? 'rolling'
+                : roll == null
+                ? 'empty'
+                : '${roll!.first}-${roll!.second}',
           ),
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _DiceFace(value: roll?.first),
-            const SizedBox(width: 12),
-            _DiceFace(value: roll?.second),
+            if (isRolling) ...[
+              const _RollingDiceFace(),
+              const SizedBox(width: 12),
+              const _RollingDiceFace(delay: Duration(milliseconds: 120)),
+            ] else if (values == null) ...[
+              const _DiceFace(value: null),
+              const SizedBox(width: 12),
+              const _DiceFace(value: null),
+            ] else
+              for (var index = 0; index < values.length; index++) ...[
+                _DiceFace(value: values[index]),
+                if (index != values.length - 1) const SizedBox(width: 12),
+              ],
           ],
         ),
       ),
@@ -778,6 +1144,30 @@ class _DiceFace extends StatelessWidget {
     return SizedBox.square(
       dimension: 66,
       child: CustomPaint(painter: _DicePainter(value)),
+    );
+  }
+}
+
+class _RollingDiceFace extends StatelessWidget {
+  const _RollingDiceFace({this.delay = Duration.zero});
+
+  final Duration delay;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(delay),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeInOutCubic,
+      builder: (context, value, child) {
+        final turn = value + delay.inMilliseconds / 1000;
+        return Transform.rotate(
+          angle: turn * 5.8,
+          child: Transform.scale(scale: 0.94 + (value * 0.08), child: child),
+        );
+      },
+      child: const _DiceFace(value: null),
     );
   }
 }
@@ -1050,18 +1440,24 @@ class _MoveHintLabel extends StatelessWidget {
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.snapshot,
+    required this.isRolling,
+    required this.match,
     required this.onRoll,
     required this.onClose,
     required this.onScore,
-    required this.onNewRound,
+    required this.onNextRound,
+    required this.onNewMatch,
     this.expandPrimary = false,
   });
 
   final GameSnapshot snapshot;
+  final bool isRolling;
+  final MatchSnapshot match;
   final VoidCallback onRoll;
   final VoidCallback onClose;
   final VoidCallback onScore;
-  final VoidCallback onNewRound;
+  final VoidCallback onNextRound;
+  final VoidCallback onNewMatch;
   final bool expandPrimary;
 
   @override
@@ -1070,9 +1466,11 @@ class _ActionRow extends StatelessWidget {
         snapshot.phase == GamePhase.choosingTiles && snapshot.isSelectionValid;
     final selectedTotal = snapshot.selectedTotal;
     final primaryAction = FilledButton.icon(
-      onPressed: snapshot.phase == GamePhase.waitingForRoll ? onRoll : null,
+      onPressed: snapshot.phase == GamePhase.waitingForRoll && !isRolling
+          ? onRoll
+          : null,
       icon: const Icon(Icons.casino_rounded),
-      label: const Text('Roll dice'),
+      label: Text(isRolling ? 'Rolling...' : 'Roll dice'),
     );
     final closeAction = FilledButton.icon(
       onPressed: canClose ? onClose : null,
@@ -1091,7 +1489,11 @@ class _ActionRow extends StatelessWidget {
         GamePhase.waitingForRoll => primaryAction,
         GamePhase.choosingTiles => closeAction,
         GamePhase.blocked => _ScoreButton(snapshot: snapshot, onScore: onScore),
-        GamePhase.complete => _PlayAgainButton(onNewRound: onNewRound),
+        GamePhase.complete => _NextMatchButton(
+          match: match,
+          onNextRound: onNextRound,
+          onNewMatch: onNewMatch,
+        ),
       };
 
       return Row(children: [Expanded(child: compactAction)]);
@@ -1103,7 +1505,11 @@ class _ActionRow extends StatelessWidget {
       if (snapshot.phase == GamePhase.blocked)
         _ScoreButton(snapshot: snapshot, onScore: onScore),
       if (snapshot.phase == GamePhase.complete)
-        _PlayAgainButton(onNewRound: onNewRound),
+        _NextMatchButton(
+          match: match,
+          onNextRound: onNextRound,
+          onNewMatch: onNewMatch,
+        ),
     ];
 
     return Wrap(
@@ -1132,17 +1538,25 @@ class _ScoreButton extends StatelessWidget {
   }
 }
 
-class _PlayAgainButton extends StatelessWidget {
-  const _PlayAgainButton({required this.onNewRound});
+class _NextMatchButton extends StatelessWidget {
+  const _NextMatchButton({
+    required this.match,
+    required this.onNextRound,
+    required this.onNewMatch,
+  });
 
-  final VoidCallback onNewRound;
+  final MatchSnapshot match;
+  final VoidCallback onNextRound;
+  final VoidCallback onNewMatch;
 
   @override
   Widget build(BuildContext context) {
     return FilledButton.icon(
-      onPressed: onNewRound,
-      icon: const Icon(Icons.refresh_rounded),
-      label: const Text('Play again'),
+      onPressed: match.isComplete ? onNewMatch : onNextRound,
+      icon: Icon(
+        match.isComplete ? Icons.refresh_rounded : Icons.skip_next_rounded,
+      ),
+      label: Text(match.isComplete ? 'New match' : 'Next round'),
     );
   }
 }
@@ -1150,17 +1564,23 @@ class _PlayAgainButton extends StatelessWidget {
 class _MobileActionDock extends StatelessWidget {
   const _MobileActionDock({
     required this.snapshot,
+    required this.match,
+    required this.isRolling,
     required this.onRoll,
     required this.onClose,
     required this.onScore,
-    required this.onNewRound,
+    required this.onNextRound,
+    required this.onNewMatch,
   });
 
   final GameSnapshot snapshot;
+  final MatchSnapshot match;
+  final bool isRolling;
   final VoidCallback onRoll;
   final VoidCallback onClose;
   final VoidCallback onScore;
-  final VoidCallback onNewRound;
+  final VoidCallback onNextRound;
+  final VoidCallback onNewMatch;
 
   @override
   Widget build(BuildContext context) {
@@ -1181,11 +1601,14 @@ class _MobileActionDock extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         child: _ActionRow(
           snapshot: snapshot,
+          match: match,
+          isRolling: isRolling,
           expandPrimary: true,
           onRoll: onRoll,
           onClose: onClose,
           onScore: onScore,
-          onNewRound: onNewRound,
+          onNextRound: onNextRound,
+          onNewMatch: onNewMatch,
         ),
       ),
     );
@@ -1193,9 +1616,10 @@ class _MobileActionDock extends StatelessWidget {
 }
 
 class _RoundPanel extends StatelessWidget {
-  const _RoundPanel({required this.snapshot});
+  const _RoundPanel({required this.snapshot, required this.match});
 
   final GameSnapshot snapshot;
+  final MatchSnapshot match;
 
   @override
   Widget build(BuildContext context) {
@@ -1211,11 +1635,32 @@ class _RoundPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Match',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: _ivory,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${match.completedRounds}/${match.targetRounds}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: _ivory.withValues(alpha: 0.72),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
             Text(
-              'Round',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: _ivory,
-                fontWeight: FontWeight.w800,
+              '${match.ruleset.name} - Round ${match.currentRoundNumber}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _ivory.withValues(alpha: 0.66),
+                fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 12),
@@ -1223,6 +1668,7 @@ class _RoundPanel extends StatelessWidget {
               _PlayerPanelRow(
                 player: player,
                 tileCount: snapshot.tileCount,
+                cumulativeScore: match.cumulativeScores[player.index],
                 isActive:
                     snapshot.phase != GamePhase.complete &&
                     player.index == snapshot.activePlayerIndex,
@@ -1230,9 +1676,15 @@ class _RoundPanel extends StatelessWidget {
               if (player.index != snapshot.players.last.index)
                 const SizedBox(height: 10),
             ],
+            if (match.roundHistory.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              _RoundHistory(records: match.roundHistory),
+            ],
             if (snapshot.phase == GamePhase.complete) ...[
               const SizedBox(height: 16),
-              _ResultBanner(snapshot: snapshot),
+              _ResultBanner(snapshot: snapshot, match: match),
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
@@ -1246,15 +1698,18 @@ class _RoundPanel extends StatelessWidget {
 }
 
 class _ResultBanner extends StatelessWidget {
-  const _ResultBanner({required this.snapshot});
+  const _ResultBanner({required this.snapshot, required this.match});
 
   final GameSnapshot snapshot;
+  final MatchSnapshot match;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       liveRegion: true,
-      label: _outcomeCopy(snapshot),
+      label: match.isComplete
+          ? _matchOutcomeCopy(match)
+          : _outcomeCopy(snapshot),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: _brass.withValues(alpha: 0.13),
@@ -1269,7 +1724,9 @@ class _ResultBanner extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  _outcomeCopy(snapshot),
+                  match.isComplete
+                      ? _matchOutcomeCopy(match)
+                      : _outcomeCopy(snapshot),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: _ivory,
                     fontWeight: FontWeight.w800,
@@ -1284,15 +1741,28 @@ class _ResultBanner extends StatelessWidget {
   }
 }
 
+String _matchOutcomeCopy(MatchSnapshot match) {
+  final winners = match.winnerIndexes
+      .map((index) => 'Player ${index + 1}')
+      .join(' and ');
+  if (winners.isEmpty) {
+    return 'Match complete';
+  }
+  final score = match.cumulativeScores[match.winnerIndexes.first];
+  return '$winners win the match with $score';
+}
+
 class _PlayerPanelRow extends StatelessWidget {
   const _PlayerPanelRow({
     required this.player,
     required this.tileCount,
+    required this.cumulativeScore,
     required this.isActive,
   });
 
   final PlayerBoard player;
   final int tileCount;
+  final int cumulativeScore;
   final bool isActive;
 
   @override
@@ -1338,12 +1808,24 @@ class _PlayerPanelRow extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                scoreText,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: player.isShut ? _brass : _ivory,
-                  fontWeight: FontWeight.w800,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    scoreText,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: player.isShut ? _brass : _ivory,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    'total $cumulativeScore',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: _ivory.withValues(alpha: 0.52),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1376,6 +1858,57 @@ class _MiniTiles extends StatelessWidget {
                   ? _ivory.withValues(alpha: 0.9)
                   : _closed,
               borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RoundHistory extends StatelessWidget {
+  const _RoundHistory({required this.records});
+
+  final List<RoundRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'History',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: _ivory,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final record in records.take(5))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    'R${record.roundNumber}',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: _brass,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    record.scores.join(' / '),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _ivory.withValues(alpha: 0.78),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
       ],

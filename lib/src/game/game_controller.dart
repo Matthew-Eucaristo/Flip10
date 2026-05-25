@@ -5,33 +5,79 @@ import 'package:flutter/foundation.dart';
 import 'game_models.dart';
 import 'game_rules.dart';
 
-typedef DiceRoller = DiceRoll Function();
+typedef DiceRoller = DiceRoll Function(int diceCount);
 
 final class GameController extends ChangeNotifier {
-  GameController({DiceRoller? diceRoller})
-    : _diceRoller = diceRoller ?? _randomRoll,
-      _snapshot = GameSnapshot.initial();
+  GameController({
+    DiceRoller? diceRoller,
+    int playerCount = 1,
+    GameRuleset ruleset = GameRuleset.flip10,
+    int targetRounds = 3,
+  }) : _diceRoller = diceRoller ?? _randomRoll,
+       _playerCount = playerCount,
+       _ruleset = ruleset,
+       _targetRounds = targetRounds,
+       _snapshot = GameSnapshot.initial(
+         playerCount: playerCount,
+         ruleset: ruleset,
+       );
 
   final DiceRoller _diceRoller;
   GameSnapshot _snapshot;
+  int _playerCount;
+  GameRuleset _ruleset;
+  int _targetRounds;
+  final List<RoundRecord> _roundHistory = [];
   static final Random _random = Random();
 
   GameSnapshot get snapshot => _snapshot;
+  MatchSnapshot get match => MatchSnapshot(
+    playerCount: _playerCount,
+    targetRounds: _targetRounds,
+    ruleset: _ruleset,
+    roundHistory: _roundHistory,
+  );
+
+  void newMatch({int? playerCount, GameRuleset? ruleset, int? targetRounds}) {
+    _playerCount = playerCount ?? _playerCount;
+    _ruleset = ruleset ?? _ruleset;
+    _targetRounds = targetRounds ?? _targetRounds;
+    _roundHistory.clear();
+    _snapshot = GameSnapshot.initial(
+      playerCount: _playerCount,
+      ruleset: _ruleset,
+    );
+    notifyListeners();
+  }
 
   void newRound({int? playerCount, int? tileCount}) {
+    newMatch(
+      playerCount: playerCount,
+      ruleset: tileCount == null
+          ? null
+          : GameRuleset.custom(tileCount: tileCount),
+    );
+  }
+
+  void nextRound() {
+    if (_snapshot.phase != GamePhase.complete || match.isComplete) {
+      return;
+    }
+
     _snapshot = GameSnapshot.initial(
-      playerCount: playerCount ?? _snapshot.players.length,
-      tileCount: tileCount ?? _snapshot.tileCount,
+      playerCount: _playerCount,
+      ruleset: _ruleset,
     );
     notifyListeners();
   }
 
   void roll() {
-    if (_snapshot.phase != GamePhase.waitingForRoll) {
+    if (_snapshot.phase != GamePhase.waitingForRoll || match.isComplete) {
       return;
     }
 
-    final roll = _diceRoller();
+    final diceCount = _ruleset.diceCountFor(_snapshot.activePlayer.openTiles);
+    final roll = _diceRoller(diceCount);
     final hasMove = GameRules.hasValidMove(
       openTiles: _snapshot.activePlayer.openTiles,
       target: roll.total,
@@ -137,6 +183,10 @@ final class GameController extends ChangeNotifier {
     final nextPlayerIndex = players.indexWhere((player) => !player.isComplete);
     final isRoundComplete = nextPlayerIndex == -1;
 
+    if (isRoundComplete) {
+      _recordRound(players);
+    }
+
     _snapshot = _snapshot.copyWith(
       players: players,
       activePlayerIndex: isRoundComplete
@@ -149,7 +199,28 @@ final class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static DiceRoll _randomRoll() {
+  void _recordRound(List<PlayerBoard> players) {
+    final scores = [
+      for (final player in players) player.score ?? player.remainingTotal,
+    ];
+    final bestScore = scores.reduce((a, b) => a < b ? a : b);
+    final winnerIndexes = [
+      for (var index = 0; index < scores.length; index++)
+        if (scores[index] == bestScore) index,
+    ];
+    _roundHistory.add(
+      RoundRecord(
+        roundNumber: _roundHistory.length + 1,
+        scores: scores,
+        winnerIndexes: winnerIndexes,
+      ),
+    );
+  }
+
+  static DiceRoll _randomRoll(int diceCount) {
+    if (diceCount == 1) {
+      return DiceRoll(_random.nextInt(6) + 1);
+    }
     return DiceRoll(_random.nextInt(6) + 1, _random.nextInt(6) + 1);
   }
 }
