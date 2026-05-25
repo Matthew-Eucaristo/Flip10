@@ -9,10 +9,26 @@ void main() {
     expect(find.text('Flip10'), findsOneWidget);
     expect(find.text('Players'), findsOneWidget);
     expect(find.text('Tiles'), findsOneWidget);
+    expect(find.text('Roll dice'), findsWidgets);
     expect(
       find.widgetWithIcon(FilledButton, Icons.casino_rounded),
       findsOneWidget,
     );
+  });
+
+  testWidgets('shows action-led roll results and move hints', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const Flip10App());
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Roll dice'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Choose'), findsWidgets);
+    expect(find.text('Best moves'), findsOneWidget);
   });
 
   testWidgets('fits the main game surface on a narrow phone viewport', (
@@ -27,6 +43,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+    expect(find.widgetWithText(FilledButton, 'Roll dice'), findsOneWidget);
     expect(find.text('New round'), findsOneWidget);
     expect(find.text('Round'), findsOneWidget);
   });

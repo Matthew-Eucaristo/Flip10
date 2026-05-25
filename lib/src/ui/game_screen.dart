@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import '../game/game_controller.dart';
 import '../game/game_models.dart';
@@ -15,6 +16,7 @@ const _ink = Color(0xFF201610);
 const _brass = Color(0xFFD7A941);
 const _closed = Color(0xFF302820);
 const _warning = Color(0xFFE56E4F);
+const _accent = Color(0xFF76D7A6);
 
 const _playerColors = [
   Color(0xFF4FA3FF),
@@ -22,6 +24,69 @@ const _playerColors = [
   Color(0xFFF0C84B),
   Color(0xFF39B879),
 ];
+
+String _statusCopy(GameSnapshot snapshot) {
+  if (snapshot.phase != GamePhase.complete) {
+    return '${snapshot.activePlayer.name} ${_phaseCopy(snapshot)}';
+  }
+  return _outcomeCopy(snapshot);
+}
+
+String _outcomeCopy(GameSnapshot snapshot) {
+  final winners = snapshot.winners;
+  if (winners.isEmpty) {
+    return 'Round complete';
+  }
+  if (winners.length == 1) {
+    final winner = winners.single;
+    return '${winner.name} wins with ${winner.score}';
+  }
+
+  final names = winners.map((player) => player.name).join(' and ');
+  return '$names tie with ${winners.first.score}';
+}
+
+String _phaseCopy(GameSnapshot snapshot) {
+  return switch (snapshot.phase) {
+    GamePhase.waitingForRoll => 'to roll',
+    GamePhase.choosingTiles => 'selects ${snapshot.currentRoll!.total}',
+    GamePhase.blocked => 'is blocked',
+    GamePhase.complete => 'round complete',
+  };
+}
+
+String _actionTitle(GameSnapshot snapshot) {
+  return switch (snapshot.phase) {
+    GamePhase.waitingForRoll => 'Roll dice',
+    GamePhase.choosingTiles => 'Choose ${snapshot.currentRoll!.total}',
+    GamePhase.blocked => 'No legal move',
+    GamePhase.complete => 'Round complete',
+  };
+}
+
+String _actionDetail(GameSnapshot snapshot) {
+  return switch (snapshot.phase) {
+    GamePhase.waitingForRoll =>
+      '${snapshot.activePlayer.name} has ${snapshot.activePlayer.remainingTotal} points open.',
+    GamePhase.choosingTiles => _selectionDetail(snapshot),
+    GamePhase.blocked =>
+      'Score ${snapshot.activePlayer.remainingTotal} and pass the dice.',
+    GamePhase.complete => _outcomeCopy(snapshot),
+  };
+}
+
+String _selectionDetail(GameSnapshot snapshot) {
+  final target = snapshot.currentRoll!.total;
+  final selected = snapshot.selectedTotal;
+  final remaining = target - selected;
+  if (remaining == 0) {
+    return 'Close the selected tiles.';
+  }
+  if (selected == 0) {
+    return 'Pick open tiles totaling $target.';
+  }
+  return '$selected selected. Need $remaining more.';
+}
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -37,6 +102,65 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _newRound({int? playerCount, int? tileCount}) {
+    _controller.newRound(playerCount: playerCount, tileCount: tileCount);
+    _announce(
+      '${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
+    );
+  }
+
+  void _roll() {
+    _controller.roll();
+    _announce(
+      '${_statusCopy(_controller.snapshot)}. ${_actionDetail(_controller.snapshot)}',
+    );
+  }
+
+  void _toggleTile(int tile) {
+    final before = _controller.snapshot.selectedTiles;
+    _controller.toggleTile(tile);
+    final after = _controller.snapshot.selectedTiles;
+    if (before.length == after.length && before.containsAll(after)) {
+      return;
+    }
+    _announce(_actionDetail(_controller.snapshot));
+  }
+
+  void _selectMove(List<int> move) {
+    _controller.selectMove(move);
+    _announce(
+      'Selected ${move.join(' plus ')}. ${_actionDetail(_controller.snapshot)}',
+    );
+  }
+
+  void _closeSelection() {
+    final total = _controller.snapshot.selectedTotal;
+    _controller.closeSelection();
+    _announce(
+      'Closed $total. ${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
+    );
+  }
+
+  void _scoreBlockedTurn() {
+    final score = _controller.snapshot.activePlayer.remainingTotal;
+    _controller.scoreBlockedTurn();
+    _announce('Scored $score. ${_statusCopy(_controller.snapshot)}.');
+  }
+
+  void _announce(String message) {
+    if (!mounted) {
+      return;
+    }
+    if (!MediaQuery.supportsAnnounceOf(context)) {
+      return;
+    }
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      message,
+      Directionality.of(context),
+    );
   }
 
   @override
@@ -63,25 +187,27 @@ class _GameScreenState extends State<GameScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        _Header(
-                          snapshot: snapshot,
-                          onNewRound: () => _controller.newRound(),
-                        ),
+                        _Header(snapshot: snapshot, onNewRound: _newRound),
                         const SizedBox(height: 14),
                         _SetupBar(
                           snapshot: snapshot,
                           onPlayersChanged: (count) {
-                            _controller.newRound(playerCount: count);
+                            _newRound(playerCount: count);
                           },
                           onTileCountChanged: (count) {
-                            _controller.newRound(tileCount: count);
+                            _newRound(tileCount: count);
                           },
                         ),
                         const SizedBox(height: 14),
                         Expanded(
                           child: _ResponsivePlayArea(
                             snapshot: snapshot,
-                            controller: _controller,
+                            onRoll: _roll,
+                            onTilePressed: _toggleTile,
+                            onMovePressed: _selectMove,
+                            onClose: _closeSelection,
+                            onScore: _scoreBlockedTurn,
+                            onNewRound: _newRound,
                           ),
                         ),
                       ],
@@ -98,16 +224,39 @@ class _GameScreenState extends State<GameScreen> {
 }
 
 class _ResponsivePlayArea extends StatelessWidget {
-  const _ResponsivePlayArea({required this.snapshot, required this.controller});
+  const _ResponsivePlayArea({
+    required this.snapshot,
+    required this.onRoll,
+    required this.onTilePressed,
+    required this.onMovePressed,
+    required this.onClose,
+    required this.onScore,
+    required this.onNewRound,
+  });
 
   final GameSnapshot snapshot;
-  final GameController controller;
+  final VoidCallback onRoll;
+  final ValueChanged<int> onTilePressed;
+  final ValueChanged<List<int>> onMovePressed;
+  final VoidCallback onClose;
+  final VoidCallback onScore;
+  final VoidCallback onNewRound;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final board = _BoardTable(snapshot: snapshot, controller: controller);
+        final isCompact = constraints.maxWidth < 520;
+        final board = _BoardTable(
+          snapshot: snapshot,
+          showActions: !isCompact,
+          onRoll: onRoll,
+          onTilePressed: onTilePressed,
+          onMovePressed: onMovePressed,
+          onClose: onClose,
+          onScore: onScore,
+          onNewRound: onNewRound,
+        );
         final panel = _RoundPanel(snapshot: snapshot);
 
         if (constraints.maxWidth >= 860) {
@@ -126,7 +275,8 @@ class _ResponsivePlayArea extends StatelessWidget {
             ? compactBoardHeight
             : 540.0;
 
-        return SingleChildScrollView(
+        final content = SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: isCompact ? 12 : 0),
           child: Column(
             children: [
               SizedBox(height: boardHeight, child: board),
@@ -134,6 +284,24 @@ class _ResponsivePlayArea extends StatelessWidget {
               panel,
             ],
           ),
+        );
+
+        if (!isCompact) {
+          return content;
+        }
+
+        return Column(
+          children: [
+            Expanded(child: content),
+            const SizedBox(height: 10),
+            _MobileActionDock(
+              snapshot: snapshot,
+              onRoll: onRoll,
+              onClose: onClose,
+              onScore: onScore,
+              onNewRound: onNewRound,
+            ),
+          ],
         );
       },
     );
@@ -151,23 +319,32 @@ class _Header extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final status = _statusCopy(snapshot);
 
-    final title = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final title = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'Flip10',
-          style: textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0,
-            height: 0.95,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          status,
-          style: textTheme.titleMedium?.copyWith(
-            color: _ivory.withValues(alpha: 0.78),
+        const _BrandMark(),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Flip10',
+                style: textTheme.displaySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                  height: 0.95,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                status,
+                style: textTheme.titleMedium?.copyWith(
+                  color: _ivory.withValues(alpha: 0.78),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -201,32 +378,21 @@ class _Header extends StatelessWidget {
       },
     );
   }
+}
 
-  static String _statusCopy(GameSnapshot snapshot) {
-    if (snapshot.phase != GamePhase.complete) {
-      return '${snapshot.activePlayer.name} ${_phaseCopy(snapshot)}';
-    }
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
 
-    final winners = snapshot.winners;
-    if (winners.isEmpty) {
-      return 'Round complete';
-    }
-    if (winners.length == 1) {
-      final winner = winners.single;
-      return '${winner.name} wins with ${winner.score}';
-    }
-
-    final names = winners.map((player) => player.name).join(' and ');
-    return '$names tie with ${winners.first.score}';
-  }
-
-  static String _phaseCopy(GameSnapshot snapshot) {
-    return switch (snapshot.phase) {
-      GamePhase.waitingForRoll => 'to roll',
-      GamePhase.choosingTiles => 'selects ${snapshot.currentRoll!.total}',
-      GamePhase.blocked => 'is blocked',
-      GamePhase.complete => 'round complete',
-    };
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Flip10 mark',
+      image: true,
+      child: SizedBox.square(
+        dimension: 44,
+        child: CustomPaint(painter: const _BrandMarkPainter()),
+      ),
+    );
   }
 }
 
@@ -347,18 +513,55 @@ class _SegmentGroup extends StatelessWidget {
   }
 }
 
-class _BoardTable extends StatelessWidget {
-  const _BoardTable({required this.snapshot, required this.controller});
+class _BoardTable extends StatefulWidget {
+  const _BoardTable({
+    required this.snapshot,
+    required this.showActions,
+    required this.onRoll,
+    required this.onTilePressed,
+    required this.onMovePressed,
+    required this.onClose,
+    required this.onScore,
+    required this.onNewRound,
+  });
 
   final GameSnapshot snapshot;
-  final GameController controller;
+  final bool showActions;
+  final VoidCallback onRoll;
+  final ValueChanged<int> onTilePressed;
+  final ValueChanged<List<int>> onMovePressed;
+  final VoidCallback onClose;
+  final VoidCallback onScore;
+  final VoidCallback onNewRound;
+
+  @override
+  State<_BoardTable> createState() => _BoardTableState();
+}
+
+class _BoardTableState extends State<_BoardTable> {
+  Set<int> _previewTiles = const {};
+
+  @override
+  void didUpdateWidget(covariant _BoardTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.snapshot.phase != GamePhase.choosingTiles ||
+        widget.snapshot.currentRoll != oldWidget.snapshot.currentRoll) {
+      _previewTiles = const {};
+    }
+  }
+
+  void _previewMove(List<int>? move) {
+    setState(() {
+      _previewTiles = move == null ? const {} : Set<int>.of(move);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final roll = snapshot.currentRoll;
-    final activePlayer = snapshot.activePlayer;
+    final snapshot = widget.snapshot;
+    final roll = widget.snapshot.currentRoll;
+    final activePlayer = widget.snapshot.activePlayer;
     final rollTotal = roll?.total;
-    final selectedTotal = snapshot.selectedTotal;
     final validMoves = rollTotal == null
         ? const <List<int>>[]
         : GameRules.validMoves(
@@ -397,37 +600,33 @@ class _BoardTable extends StatelessWidget {
                     const SizedBox(height: 18),
                     _DiceRow(roll: roll),
                     const SizedBox(height: 16),
-                    Text(
-                      _tableStatus(snapshot),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _ivory,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    _ActionPrompt(snapshot: snapshot),
                     const SizedBox(height: 16),
                     Expanded(
                       child: Center(
                         child: _TileRack(
                           snapshot: snapshot,
-                          onTilePressed: controller.toggleTile,
+                          previewTiles: _previewTiles,
+                          onTilePressed: widget.onTilePressed,
                         ),
                       ),
                     ),
                     _MoveHints(
                       snapshot: snapshot,
                       validMoves: validMoves,
-                      onMovePressed: controller.selectMove,
+                      onPreviewMove: _previewMove,
+                      onMovePressed: widget.onMovePressed,
                     ),
-                    const SizedBox(height: 12),
-                    _ActionRow(
-                      snapshot: snapshot,
-                      selectedTotal: selectedTotal,
-                      onRoll: controller.roll,
-                      onClose: controller.closeSelection,
-                      onScore: controller.scoreBlockedTurn,
-                      onNewRound: controller.newRound,
-                    ),
+                    if (widget.showActions) ...[
+                      const SizedBox(height: 12),
+                      _ActionRow(
+                        snapshot: snapshot,
+                        onRoll: widget.onRoll,
+                        onClose: widget.onClose,
+                        onScore: widget.onScore,
+                        onNewRound: widget.onNewRound,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -437,15 +636,58 @@ class _BoardTable extends StatelessWidget {
       ),
     );
   }
+}
 
-  static String _tableStatus(GameSnapshot snapshot) {
-    return switch (snapshot.phase) {
-      GamePhase.waitingForRoll => 'Ready',
-      GamePhase.choosingTiles =>
-        '${snapshot.selectedTotal}/${snapshot.currentRoll!.total}',
-      GamePhase.blocked => 'No move',
-      GamePhase.complete => 'Final scores',
-    };
+class _ActionPrompt extends StatelessWidget {
+  const _ActionPrompt({required this.snapshot});
+
+  final GameSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final isReadyToClose =
+        snapshot.phase == GamePhase.choosingTiles && snapshot.isSelectionValid;
+    final titleColor = snapshot.phase == GamePhase.blocked
+        ? _warning
+        : isReadyToClose
+        ? _accent
+        : _ivory;
+
+    return Semantics(
+      liveRegion: true,
+      label: '${_actionTitle(snapshot)}. ${_actionDetail(snapshot)}',
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        child: Column(
+          key: ValueKey(
+            '${snapshot.phase}-${snapshot.currentRoll?.total}-${snapshot.selectedTotal}',
+          ),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _actionTitle(snapshot),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: titleColor,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _actionDetail(snapshot),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _ivory.withValues(alpha: 0.76),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -498,14 +740,29 @@ class _DiceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      liveRegion: true,
       label: roll == null ? 'Dice not rolled' : 'Rolled ${roll!.total}',
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _DiceFace(value: roll?.first),
-          const SizedBox(width: 12),
-          _DiceFace(value: roll?.second),
-        ],
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOutBack,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
+          );
+        },
+        child: Row(
+          key: ValueKey(
+            roll == null ? 'empty' : '${roll!.first}-${roll!.second}',
+          ),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _DiceFace(value: roll?.first),
+            const SizedBox(width: 12),
+            _DiceFace(value: roll?.second),
+          ],
+        ),
       ),
     );
   }
@@ -526,9 +783,14 @@ class _DiceFace extends StatelessWidget {
 }
 
 class _TileRack extends StatelessWidget {
-  const _TileRack({required this.snapshot, required this.onTilePressed});
+  const _TileRack({
+    required this.snapshot,
+    required this.previewTiles,
+    required this.onTilePressed,
+  });
 
   final GameSnapshot snapshot;
+  final Set<int> previewTiles;
   final ValueChanged<int> onTilePressed;
 
   @override
@@ -562,6 +824,7 @@ class _TileRack extends StatelessWidget {
                 height: tileHeight,
                 isOpen: activePlayer.openTiles.contains(tile),
                 isSelected: snapshot.selectedTiles.contains(tile),
+                isHinted: previewTiles.contains(tile),
                 canSelect:
                     snapshot.phase == GamePhase.choosingTiles &&
                     activePlayer.openTiles.contains(tile) &&
@@ -584,6 +847,7 @@ class _NumberTile extends StatelessWidget {
     required this.height,
     required this.isOpen,
     required this.isSelected,
+    required this.isHinted,
     required this.canSelect,
     required this.onPressed,
   });
@@ -593,6 +857,7 @@ class _NumberTile extends StatelessWidget {
   final double height;
   final bool isOpen;
   final bool isSelected;
+  final bool isHinted;
   final bool canSelect;
   final VoidCallback onPressed;
 
@@ -602,6 +867,8 @@ class _NumberTile extends StatelessWidget {
         ? _closed
         : isSelected
         ? _brass
+        : isHinted
+        ? _accent
         : _ivory;
     final foreground = !isOpen ? _ivory.withValues(alpha: 0.34) : _ink;
 
@@ -609,48 +876,55 @@ class _NumberTile extends StatelessWidget {
       button: isOpen,
       selected: isSelected,
       enabled: canSelect,
-      label: 'Tile $number',
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: AnimatedSlide(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          offset: isOpen ? Offset.zero : const Offset(0, 0.18),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: canSelect ? onPressed : null,
-              borderRadius: BorderRadius.circular(7),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                curve: Curves.easeOutCubic,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                    color: isSelected
-                        ? Colors.white
-                        : Colors.black.withValues(alpha: 0.18),
-                    width: isSelected ? 2 : 1,
+      label: isSelected ? 'Selected tile $number' : 'Tile $number',
+      child: AnimatedScale(
+        scale: isSelected || isHinted ? 1.05 : 1,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            offset: isOpen ? Offset.zero : const Offset(0, 0.18),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: canSelect ? onPressed : null,
+                borderRadius: BorderRadius.circular(7),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(
+                      color: isSelected
+                          ? Colors.white
+                          : isHinted
+                          ? _brass
+                          : Colors.black.withValues(alpha: 0.18),
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: isOpen
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x55000000),
+                              blurRadius: 7,
+                              offset: Offset(0, 4),
+                            ),
+                          ]
+                        : null,
                   ),
-                  boxShadow: isOpen
-                      ? const [
-                          BoxShadow(
-                            color: Color(0x55000000),
-                            blurRadius: 7,
-                            offset: Offset(0, 4),
-                          ),
-                        ]
-                      : null,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '$number',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: foreground,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0,
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$number',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
                   ),
                 ),
               ),
@@ -666,37 +940,109 @@ class _MoveHints extends StatelessWidget {
   const _MoveHints({
     required this.snapshot,
     required this.validMoves,
+    required this.onPreviewMove,
     required this.onMovePressed,
   });
 
   final GameSnapshot snapshot;
   final List<List<int>> validMoves;
+  final ValueChanged<List<int>?> onPreviewMove;
   final ValueChanged<List<int>> onMovePressed;
 
   @override
   Widget build(BuildContext context) {
     if (snapshot.phase != GamePhase.choosingTiles || validMoves.isEmpty) {
-      return const SizedBox(height: 40);
+      return const SizedBox(height: 66);
     }
 
     final visibleMoves = validMoves.take(6).toList();
     return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: visibleMoves.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final move = visibleMoves[index];
-          return ActionChip(
-            label: Text(move.join(' + ')),
-            onPressed: () => onMovePressed(move),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+      height: 66,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Best moves',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: _ivory.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w700,
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: visibleMoves.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final move = visibleMoves[index];
+                return MouseRegion(
+                  onEnter: (_) => onPreviewMove(move),
+                  onExit: (_) => onPreviewMove(null),
+                  child: Semantics(
+                    button: true,
+                    label: 'Select move ${move.join(' plus ')}',
+                    child: ActionChip(
+                      label: _MoveHintLabel(move: move),
+                      onPressed: () => onMovePressed(move),
+                      backgroundColor: _ivory.withValues(alpha: 0.96),
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(color: _brass.withValues(alpha: 0.5)),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _MoveHintLabel extends StatelessWidget {
+  const _MoveHintLabel({required this.move});
+
+  final List<int> move;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 0; index < move.length; index++) ...[
+          Container(
+            constraints: const BoxConstraints(minWidth: 24),
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _brass.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              '${move[index]}',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: _ink,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          if (index != move.length - 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                '+',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: _ink.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+        ],
+      ],
     );
   }
 }
@@ -704,7 +1050,106 @@ class _MoveHints extends StatelessWidget {
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.snapshot,
-    required this.selectedTotal,
+    required this.onRoll,
+    required this.onClose,
+    required this.onScore,
+    required this.onNewRound,
+    this.expandPrimary = false,
+  });
+
+  final GameSnapshot snapshot;
+  final VoidCallback onRoll;
+  final VoidCallback onClose;
+  final VoidCallback onScore;
+  final VoidCallback onNewRound;
+  final bool expandPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    final canClose =
+        snapshot.phase == GamePhase.choosingTiles && snapshot.isSelectionValid;
+    final selectedTotal = snapshot.selectedTotal;
+    final primaryAction = FilledButton.icon(
+      onPressed: snapshot.phase == GamePhase.waitingForRoll ? onRoll : null,
+      icon: const Icon(Icons.casino_rounded),
+      label: const Text('Roll dice'),
+    );
+    final closeAction = FilledButton.icon(
+      onPressed: canClose ? onClose : null,
+      icon: const Icon(Icons.keyboard_double_arrow_down_rounded),
+      label: Text(
+        canClose
+            ? 'Close $selectedTotal'
+            : selectedTotal == 0
+            ? 'Select tiles'
+            : 'Need ${snapshot.currentRoll!.total - selectedTotal}',
+      ),
+    );
+
+    if (expandPrimary) {
+      final compactAction = switch (snapshot.phase) {
+        GamePhase.waitingForRoll => primaryAction,
+        GamePhase.choosingTiles => closeAction,
+        GamePhase.blocked => _ScoreButton(snapshot: snapshot, onScore: onScore),
+        GamePhase.complete => _PlayAgainButton(onNewRound: onNewRound),
+      };
+
+      return Row(children: [Expanded(child: compactAction)]);
+    }
+
+    final actions = [
+      primaryAction,
+      closeAction,
+      if (snapshot.phase == GamePhase.blocked)
+        _ScoreButton(snapshot: snapshot, onScore: onScore),
+      if (snapshot.phase == GamePhase.complete)
+        _PlayAgainButton(onNewRound: onNewRound),
+    ];
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 10,
+      runSpacing: 10,
+      children: actions,
+    );
+  }
+}
+
+class _ScoreButton extends StatelessWidget {
+  const _ScoreButton({required this.snapshot, required this.onScore});
+
+  final GameSnapshot snapshot;
+  final VoidCallback onScore;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: onScore,
+      icon: const Icon(Icons.flag_rounded),
+      label: Text('Score ${snapshot.activePlayer.remainingTotal}'),
+      style: FilledButton.styleFrom(backgroundColor: _warning),
+    );
+  }
+}
+
+class _PlayAgainButton extends StatelessWidget {
+  const _PlayAgainButton({required this.onNewRound});
+
+  final VoidCallback onNewRound;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: onNewRound,
+      icon: const Icon(Icons.refresh_rounded),
+      label: const Text('Play again'),
+    );
+  }
+}
+
+class _MobileActionDock extends StatelessWidget {
+  const _MobileActionDock({
+    required this.snapshot,
     required this.onRoll,
     required this.onClose,
     required this.onScore,
@@ -712,7 +1157,6 @@ class _ActionRow extends StatelessWidget {
   });
 
   final GameSnapshot snapshot;
-  final int selectedTotal;
   final VoidCallback onRoll;
   final VoidCallback onClose;
   final VoidCallback onScore;
@@ -720,38 +1164,30 @@ class _ActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canClose =
-        snapshot.phase == GamePhase.choosingTiles && snapshot.isSelectionValid;
-
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        FilledButton.icon(
-          onPressed: snapshot.phase == GamePhase.waitingForRoll ? onRoll : null,
-          icon: const Icon(Icons.casino_rounded),
-          label: const Text('Roll'),
-        ),
-        FilledButton.icon(
-          onPressed: canClose ? onClose : null,
-          icon: const Icon(Icons.keyboard_double_arrow_down_rounded),
-          label: Text(selectedTotal == 0 ? 'Close' : 'Close $selectedTotal'),
-        ),
-        if (snapshot.phase == GamePhase.blocked)
-          FilledButton.icon(
-            onPressed: onScore,
-            icon: const Icon(Icons.flag_rounded),
-            label: Text('Score ${snapshot.activePlayer.remainingTotal}'),
-            style: FilledButton.styleFrom(backgroundColor: _warning),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _panel.withValues(alpha: 0.96),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x77000000),
+            blurRadius: 14,
+            offset: Offset(0, -4),
           ),
-        if (snapshot.phase == GamePhase.complete)
-          FilledButton.icon(
-            onPressed: onNewRound,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Play again'),
-          ),
-      ],
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: _ActionRow(
+          snapshot: snapshot,
+          expandPrimary: true,
+          onRoll: onRoll,
+          onClose: onClose,
+          onScore: onScore,
+          onNewRound: onNewRound,
+        ),
+      ),
     );
   }
 }
@@ -796,11 +1232,52 @@ class _RoundPanel extends StatelessWidget {
             ],
             if (snapshot.phase == GamePhase.complete) ...[
               const SizedBox(height: 16),
+              _ResultBanner(snapshot: snapshot),
+              const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
               _Rankings(players: snapshot.rankedPlayers),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultBanner extends StatelessWidget {
+  const _ResultBanner({required this.snapshot});
+
+  final GameSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      label: _outcomeCopy(snapshot),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: _brass.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _brass.withValues(alpha: 0.38)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(Icons.emoji_events_rounded, color: _brass, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _outcomeCopy(snapshot),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: _ivory,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -996,6 +1473,61 @@ class _FeltPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _FeltPainter oldDelegate) => false;
+}
+
+class _BrandMarkPainter extends CustomPainter {
+  const _BrandMarkPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final background = Paint()..color = _felt;
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = _brass;
+    final shadow = Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+    final badge = RRect.fromRectAndRadius(
+      rect.deflate(2),
+      const Radius.circular(9),
+    );
+    canvas.drawRRect(badge.shift(const Offset(0, 2)), shadow);
+    canvas.drawRRect(badge, background);
+    canvas.drawRRect(badge, border);
+
+    final tilePaint = Paint()..color = _ivory;
+    final closedPaint = Paint()..color = _closed;
+    final accentPaint = Paint()..color = _accent;
+    final tileSize = Size(size.width * 0.22, size.height * 0.34);
+    final top = size.height * 0.18;
+    final left = size.width * 0.18;
+
+    for (var index = 0; index < 3; index++) {
+      final dx = left + index * size.width * 0.18;
+      final tileRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(dx, top, tileSize.width, tileSize.height),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(tileRect, index == 2 ? accentPaint : tilePaint);
+    }
+
+    final bottomTile = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        size.width * 0.42,
+        size.height * 0.54,
+        tileSize.width,
+        tileSize.height * 0.78,
+      ),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(bottomTile, closedPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BrandMarkPainter oldDelegate) => false;
 }
 
 class _DicePainter extends CustomPainter {
