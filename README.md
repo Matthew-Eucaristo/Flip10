@@ -21,8 +21,7 @@ flutter build ios --release
 flutter build web --release
 ```
 
-The GitHub Actions deployment workflow runs the deterministic unit and widget
-tests. Golden image baselines are kept for local visual checks:
+Golden image baselines are kept for local visual checks:
 
 ```sh
 flutter test test/golden_test.dart
@@ -36,12 +35,3 @@ The production web app is deployed to Cloudflare Pages:
 flutter build web --release
 npx wrangler pages deploy build/web --project-name=flip10 --branch=main
 ```
-
-GitHub Actions is configured in `.github/workflows/deploy-cloudflare-pages.yml`
-to build, test, and deploy on pushes to `main`. Add these repository secrets
-before expecting automatic deploys:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-
-The API token only needs Account > Cloudflare Pages > Edit permission.
