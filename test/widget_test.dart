@@ -50,8 +50,48 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.widgetWithText(FilledButton, 'Roll dice'), findsOneWidget);
-    expect(find.text('New match'), findsOneWidget);
+    expect(find.byTooltip('New match'), findsOneWidget);
     expect(find.text('Match'), findsOneWidget);
+    expect(find.byTooltip('Change setup'), findsOneWidget);
+  });
+
+  testWidgets('opens compact setup controls on a phone viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const Flip10App());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Change setup'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Setup'), findsOneWidget);
+    expect(find.text('Players'), findsOneWidget);
+    expect(find.text('Rules'), findsOneWidget);
+    expect(find.text('Rounds'), findsOneWidget);
+  });
+
+  testWidgets('keeps the play surface usable on a short phone viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const Flip10App());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Roll dice'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Choose'), findsWidgets);
+    expect(find.byTooltip('Change setup'), findsOneWidget);
   });
 
   testWidgets('opens the rules and recent matches sheet', (tester) async {

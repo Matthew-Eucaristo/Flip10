@@ -302,46 +302,53 @@ class _GameScreenState extends State<GameScreen> {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 1180),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _Header(
-                          snapshot: snapshot,
-                          match: match,
-                          recentMatches: _recentMatches,
-                          onNewMatch: () => _newMatch(),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isPhone = constraints.maxWidth < 520;
+                      final gap = isPhone ? 10.0 : 14.0;
+
+                      return Padding(
+                        padding: EdgeInsets.all(isPhone ? 10 : 16),
+                        child: Column(
+                          children: [
+                            _Header(
+                              snapshot: snapshot,
+                              match: match,
+                              recentMatches: _recentMatches,
+                              onNewMatch: () => _newMatch(),
+                            ),
+                            SizedBox(height: gap),
+                            _SetupBar(
+                              match: match,
+                              onPlayersChanged: (count) {
+                                _newMatch(playerCount: count);
+                              },
+                              onRulesetChanged: (ruleset) {
+                                _newMatch(ruleset: ruleset);
+                              },
+                              onTargetRoundsChanged: (rounds) {
+                                _newMatch(targetRounds: rounds);
+                              },
+                            ),
+                            SizedBox(height: gap),
+                            Expanded(
+                              child: _ResponsivePlayArea(
+                                snapshot: snapshot,
+                                match: match,
+                                isRolling: _isRolling,
+                                onRoll: _roll,
+                                onTilePressed: _toggleTile,
+                                onMovePressed: _selectMove,
+                                onClose: _closeSelection,
+                                onScore: _scoreBlockedTurn,
+                                onNextRound: _nextRound,
+                                onNewMatch: () => _newMatch(),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 14),
-                        _SetupBar(
-                          match: match,
-                          onPlayersChanged: (count) {
-                            _newMatch(playerCount: count);
-                          },
-                          onRulesetChanged: (ruleset) {
-                            _newMatch(ruleset: ruleset);
-                          },
-                          onTargetRoundsChanged: (rounds) {
-                            _newMatch(targetRounds: rounds);
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        Expanded(
-                          child: _ResponsivePlayArea(
-                            snapshot: snapshot,
-                            match: match,
-                            isRolling: _isRolling,
-                            onRoll: _roll,
-                            onTilePressed: _toggleTile,
-                            onMovePressed: _selectMove,
-                            onClose: _closeSelection,
-                            onScore: _scoreBlockedTurn,
-                            onNextRound: _nextRound,
-                            onNewMatch: () => _newMatch(),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -397,6 +404,7 @@ class _ResponsivePlayArea extends StatelessWidget {
           snapshot: snapshot,
           match: match,
           isRolling: isRolling,
+          isCompact: isCompact,
           showActions: !isCompact,
           onRoll: onRoll,
           onTilePressed: onTilePressed,
@@ -406,7 +414,11 @@ class _ResponsivePlayArea extends StatelessWidget {
           onNextRound: onNextRound,
           onNewMatch: onNewMatch,
         );
-        final panel = _RoundPanel(snapshot: snapshot, match: match);
+        final panel = _RoundPanel(
+          snapshot: snapshot,
+          match: match,
+          isCompact: isCompact,
+        );
 
         if (constraints.maxWidth >= 860) {
           return Row(
@@ -419,7 +431,7 @@ class _ResponsivePlayArea extends StatelessWidget {
           );
         }
 
-        final compactBoardHeight = snapshot.tileCount >= 12 ? 650.0 : 590.0;
+        final compactBoardHeight = snapshot.tileCount >= 12 ? 560.0 : 500.0;
         final boardHeight = constraints.maxWidth < 520
             ? compactBoardHeight
             : 540.0;
@@ -429,7 +441,7 @@ class _ResponsivePlayArea extends StatelessWidget {
           child: Column(
             children: [
               SizedBox(height: boardHeight, child: board),
-              const SizedBox(height: 14),
+              SizedBox(height: isCompact ? 10 : 14),
               panel,
             ],
           ),
@@ -514,6 +526,11 @@ class _Header extends StatelessWidget {
       icon: const Icon(Icons.help_outline_rounded),
       tooltip: 'Rules and recent matches',
     );
+    final newMatchIconAction = IconButton.outlined(
+      onPressed: onNewMatch,
+      icon: const Icon(Icons.refresh_rounded),
+      tooltip: 'New match',
+    );
     final newMatchAction = OutlinedButton.icon(
       onPressed: onNewMatch,
       icon: const Icon(Icons.refresh_rounded),
@@ -523,19 +540,13 @@ class _Header extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 430) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              title,
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  helpAction,
-                  const SizedBox(width: 8),
-                  newMatchAction,
-                ],
-              ),
+              Expanded(child: title),
+              helpAction,
+              const SizedBox(width: 6),
+              newMatchIconAction,
             ],
           );
         }
@@ -781,25 +792,10 @@ class _SetupBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth < 360) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SegmentGroup.stacked(
-                    label: 'Players',
-                    child: playerSelector.child,
-                  ),
-                  const SizedBox(height: 12),
-                  _SegmentGroup.stacked(
-                    label: 'Rules',
-                    child: rulesetSelector.child,
-                  ),
-                  const SizedBox(height: 12),
-                  _SegmentGroup.stacked(
-                    label: 'Rounds',
-                    child: roundsSelector.child,
-                  ),
-                ],
+            if (constraints.maxWidth < 520) {
+              return _CompactSetupSummary(
+                match: match,
+                onPressed: () => _showSetupSheet(context),
               );
             }
 
@@ -811,6 +807,191 @@ class _SetupBar extends StatelessWidget {
               children: [playerSelector, rulesetSelector, roundsSelector],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  void _showSetupSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: _panel,
+      builder: (context) => _SetupSheet(
+        match: match,
+        onPlayersChanged: (count) {
+          Navigator.of(context).pop();
+          onPlayersChanged(count);
+        },
+        onRulesetChanged: (ruleset) {
+          Navigator.of(context).pop();
+          onRulesetChanged(ruleset);
+        },
+        onTargetRoundsChanged: (rounds) {
+          Navigator.of(context).pop();
+          onTargetRoundsChanged(rounds);
+        },
+      ),
+    );
+  }
+}
+
+class _CompactSetupSummary extends StatelessWidget {
+  const _CompactSetupSummary({required this.match, required this.onPressed});
+
+  final MatchSnapshot match;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _SetupPill(
+                icon: Icons.person_rounded,
+                label: 'P${match.playerCount}',
+              ),
+              _SetupPill(
+                icon: Icons.apps_rounded,
+                label: '${match.ruleset.tileCount} tiles',
+              ),
+              _SetupPill(
+                icon: Icons.flag_rounded,
+                label: '${match.targetRounds} rounds',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.outlined(
+          onPressed: onPressed,
+          icon: const Icon(Icons.tune_rounded),
+          tooltip: 'Change setup',
+        ),
+      ],
+    );
+  }
+}
+
+class _SetupPill extends StatelessWidget {
+  const _SetupPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _accent.withValues(alpha: 0.11),
+        border: Border.all(color: _accent.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: _accent, size: 16),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: _ivory,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SetupSheet extends StatelessWidget {
+  const _SetupSheet({
+    required this.match,
+    required this.onPlayersChanged,
+    required this.onRulesetChanged,
+    required this.onTargetRoundsChanged,
+  });
+
+  final MatchSnapshot match;
+  final ValueChanged<int> onPlayersChanged;
+  final ValueChanged<GameRuleset> onRulesetChanged;
+  final ValueChanged<int> onTargetRoundsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Setup',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: _ivory,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SegmentGroup.stacked(
+              label: 'Players',
+              child: SegmentedButton<int>(
+                segments: [
+                  for (final count in _playerOptions)
+                    ButtonSegment(value: count, label: Text('$count')),
+                ],
+                selected: {match.playerCount},
+                onSelectionChanged: (selection) {
+                  onPlayersChanged(selection.first);
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+            _SegmentGroup.stacked(
+              label: 'Rules',
+              child: SegmentedButton<RulesetPreset>(
+                segments: [
+                  for (final ruleset in GameRuleset.presets)
+                    ButtonSegment(
+                      value: ruleset.preset,
+                      label: Text('${ruleset.tileCount}'),
+                      tooltip: ruleset.name,
+                    ),
+                ],
+                selected: {match.ruleset.preset},
+                onSelectionChanged: (selection) {
+                  onRulesetChanged(
+                    GameRuleset.presets.firstWhere(
+                      (ruleset) => ruleset.preset == selection.first,
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+            _SegmentGroup.stacked(
+              label: 'Rounds',
+              child: SegmentedButton<int>(
+                segments: [
+                  for (final rounds in _roundOptions)
+                    ButtonSegment(value: rounds, label: Text('$rounds')),
+                ],
+                selected: {match.targetRounds},
+                onSelectionChanged: (selection) {
+                  onTargetRoundsChanged(selection.first);
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -839,7 +1020,8 @@ class _SegmentGroup extends StatelessWidget {
     if (stacked) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [labelWidget, const SizedBox(height: 6), child],
+        mainAxisSize: MainAxisSize.min,
+        children: [labelWidget, const SizedBox(height: 5), child],
       );
     }
 
@@ -854,6 +1036,7 @@ class _BoardTable extends StatefulWidget {
   const _BoardTable({
     required this.snapshot,
     required this.isRolling,
+    required this.isCompact,
     required this.showActions,
     required this.onRoll,
     required this.onTilePressed,
@@ -868,6 +1051,7 @@ class _BoardTable extends StatefulWidget {
   final GameSnapshot snapshot;
   final MatchSnapshot match;
   final bool isRolling;
+  final bool isCompact;
   final bool showActions;
   final VoidCallback onRoll;
   final ValueChanged<int> onTilePressed;
@@ -925,7 +1109,7 @@ class _BoardTableState extends State<_BoardTable> {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(widget.isCompact ? 8 : 12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(6),
           child: CustomPaint(
@@ -933,23 +1117,37 @@ class _BoardTableState extends State<_BoardTable> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: _felt,
-                border: Border.all(color: _woodLight, width: 3),
+                border: Border.all(
+                  color: _woodLight,
+                  width: widget.isCompact ? 2 : 3,
+                ),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(widget.isCompact ? 10 : 16),
                 child: Column(
                   children: [
-                    _ActivePlayerBand(player: activePlayer),
-                    const SizedBox(height: 18),
-                    _DiceRow(roll: roll, isRolling: widget.isRolling),
-                    const SizedBox(height: 16),
-                    _ActionPrompt(snapshot: snapshot),
-                    const SizedBox(height: 16),
+                    _ActivePlayerBand(
+                      player: activePlayer,
+                      isCompact: widget.isCompact,
+                    ),
+                    SizedBox(height: widget.isCompact ? 12 : 18),
+                    _DiceRow(
+                      roll: roll,
+                      isRolling: widget.isRolling,
+                      isCompact: widget.isCompact,
+                    ),
+                    SizedBox(height: widget.isCompact ? 10 : 16),
+                    _ActionPrompt(
+                      snapshot: snapshot,
+                      isCompact: widget.isCompact,
+                    ),
+                    SizedBox(height: widget.isCompact ? 10 : 16),
                     Expanded(
                       child: Center(
                         child: _TileRack(
                           snapshot: snapshot,
                           previewTiles: _previewTiles,
+                          isCompact: widget.isCompact,
                           onTilePressed: widget.onTilePressed,
                         ),
                       ),
@@ -957,6 +1155,7 @@ class _BoardTableState extends State<_BoardTable> {
                     _MoveHints(
                       snapshot: snapshot,
                       validMoves: validMoves,
+                      isCompact: widget.isCompact,
                       onPreviewMove: _previewMove,
                       onMovePressed: widget.onMovePressed,
                     ),
@@ -985,9 +1184,10 @@ class _BoardTableState extends State<_BoardTable> {
 }
 
 class _ActionPrompt extends StatelessWidget {
-  const _ActionPrompt({required this.snapshot});
+  const _ActionPrompt({required this.snapshot, required this.isCompact});
 
   final GameSnapshot snapshot;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1019,6 +1219,7 @@ class _ActionPrompt extends StatelessWidget {
                 color: titleColor,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0,
+                fontSize: isCompact ? 21 : null,
               ),
             ),
             const SizedBox(height: 4),
@@ -1028,6 +1229,7 @@ class _ActionPrompt extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: _ivory.withValues(alpha: 0.76),
                 fontWeight: FontWeight.w600,
+                fontSize: isCompact ? 13 : null,
               ),
             ),
           ],
@@ -1038,9 +1240,10 @@ class _ActionPrompt extends StatelessWidget {
 }
 
 class _ActivePlayerBand extends StatelessWidget {
-  const _ActivePlayerBand({required this.player});
+  const _ActivePlayerBand({required this.player, required this.isCompact});
 
   final PlayerBoard player;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1049,8 +1252,8 @@ class _ActivePlayerBand extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 12,
-          height: 36,
+          width: isCompact ? 10 : 12,
+          height: isCompact ? 32 : 36,
           decoration: BoxDecoration(
             color: playerColor,
             borderRadius: BorderRadius.circular(4),
@@ -1063,6 +1266,7 @@ class _ActivePlayerBand extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               color: _ivory,
               fontWeight: FontWeight.w800,
+              fontSize: isCompact ? 22 : null,
             ),
           ),
         ),
@@ -1071,6 +1275,7 @@ class _ActivePlayerBand extends StatelessWidget {
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             color: _ivory,
             fontWeight: FontWeight.w800,
+            fontSize: isCompact ? 22 : null,
           ),
         ),
       ],
@@ -1079,10 +1284,15 @@ class _ActivePlayerBand extends StatelessWidget {
 }
 
 class _DiceRow extends StatelessWidget {
-  const _DiceRow({required this.roll, required this.isRolling});
+  const _DiceRow({
+    required this.roll,
+    required this.isRolling,
+    required this.isCompact,
+  });
 
   final DiceRoll? roll;
   final bool isRolling;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1115,17 +1325,21 @@ class _DiceRow extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (isRolling) ...[
-              const _RollingDiceFace(),
-              const SizedBox(width: 12),
-              const _RollingDiceFace(delay: Duration(milliseconds: 120)),
+              _RollingDiceFace(isCompact: isCompact),
+              SizedBox(width: isCompact ? 10 : 12),
+              _RollingDiceFace(
+                isCompact: isCompact,
+                delay: const Duration(milliseconds: 120),
+              ),
             ] else if (values == null) ...[
-              const _DiceFace(value: null),
-              const SizedBox(width: 12),
-              const _DiceFace(value: null),
+              _DiceFace(value: null, isCompact: isCompact),
+              SizedBox(width: isCompact ? 10 : 12),
+              _DiceFace(value: null, isCompact: isCompact),
             ] else
               for (var index = 0; index < values.length; index++) ...[
-                _DiceFace(value: values[index]),
-                if (index != values.length - 1) const SizedBox(width: 12),
+                _DiceFace(value: values[index], isCompact: isCompact),
+                if (index != values.length - 1)
+                  SizedBox(width: isCompact ? 10 : 12),
               ],
           ],
         ),
@@ -1135,22 +1349,24 @@ class _DiceRow extends StatelessWidget {
 }
 
 class _DiceFace extends StatelessWidget {
-  const _DiceFace({required this.value});
+  const _DiceFace({required this.value, required this.isCompact});
 
   final int? value;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox.square(
-      dimension: 66,
+      dimension: isCompact ? 56 : 66,
       child: CustomPaint(painter: _DicePainter(value)),
     );
   }
 }
 
 class _RollingDiceFace extends StatelessWidget {
-  const _RollingDiceFace({this.delay = Duration.zero});
+  const _RollingDiceFace({required this.isCompact, this.delay = Duration.zero});
 
+  final bool isCompact;
   final Duration delay;
 
   @override
@@ -1167,7 +1383,7 @@ class _RollingDiceFace extends StatelessWidget {
           child: Transform.scale(scale: 0.94 + (value * 0.08), child: child),
         );
       },
-      child: const _DiceFace(value: null),
+      child: _DiceFace(value: null, isCompact: isCompact),
     );
   }
 }
@@ -1176,11 +1392,13 @@ class _TileRack extends StatelessWidget {
   const _TileRack({
     required this.snapshot,
     required this.previewTiles,
+    required this.isCompact,
     required this.onTilePressed,
   });
 
   final GameSnapshot snapshot;
   final Set<int> previewTiles;
+  final bool isCompact;
   final ValueChanged<int> onTilePressed;
 
   @override
@@ -1190,22 +1408,26 @@ class _TileRack extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        const spacing = 8.0;
-        final columns = ((constraints.maxWidth + spacing) / (52 + spacing))
-            .floor()
-            .clamp(1, snapshot.tileCount)
-            .toInt();
+        final spacing = isCompact ? 7.0 : 8.0;
+        final idealTileWidth = isCompact ? 48.0 : 52.0;
+        final minTileWidth = isCompact ? 42.0 : 44.0;
+        final maxTileWidth = isCompact ? 50.0 : 52.0;
+        final columns =
+            ((constraints.maxWidth + spacing) / (idealTileWidth + spacing))
+                .floor()
+                .clamp(1, snapshot.tileCount)
+                .toInt();
         final tileWidth =
             ((constraints.maxWidth - spacing * (columns - 1)) / columns)
-                .clamp(44.0, 52.0)
+                .clamp(minTileWidth, maxTileWidth)
                 .toDouble();
-        final tileHeight = tileWidth * 1.65;
+        final tileHeight = tileWidth * (isCompact ? 1.54 : 1.65);
 
         return Wrap(
           alignment: WrapAlignment.center,
           runAlignment: WrapAlignment.center,
           spacing: spacing,
-          runSpacing: 10,
+          runSpacing: isCompact ? 8 : 10,
           children: [
             for (var tile = 1; tile <= snapshot.tileCount; tile++)
               _NumberTile(
@@ -1330,24 +1552,26 @@ class _MoveHints extends StatelessWidget {
   const _MoveHints({
     required this.snapshot,
     required this.validMoves,
+    required this.isCompact,
     required this.onPreviewMove,
     required this.onMovePressed,
   });
 
   final GameSnapshot snapshot;
   final List<List<int>> validMoves;
+  final bool isCompact;
   final ValueChanged<List<int>?> onPreviewMove;
   final ValueChanged<List<int>> onMovePressed;
 
   @override
   Widget build(BuildContext context) {
     if (snapshot.phase != GamePhase.choosingTiles || validMoves.isEmpty) {
-      return const SizedBox(height: 66);
+      return SizedBox(height: isCompact ? 58 : 66);
     }
 
     final visibleMoves = validMoves.take(6).toList();
     return SizedBox(
-      height: 66,
+      height: isCompact ? 58 : 66,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1358,7 +1582,7 @@ class _MoveHints extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: isCompact ? 4 : 6),
           Expanded(
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
@@ -1616,10 +1840,15 @@ class _MobileActionDock extends StatelessWidget {
 }
 
 class _RoundPanel extends StatelessWidget {
-  const _RoundPanel({required this.snapshot, required this.match});
+  const _RoundPanel({
+    required this.snapshot,
+    required this.match,
+    required this.isCompact,
+  });
 
   final GameSnapshot snapshot;
   final MatchSnapshot match;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1630,7 +1859,7 @@ class _RoundPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.all(isCompact ? 12 : 14),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1643,6 +1872,7 @@ class _RoundPanel extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: _ivory,
                       fontWeight: FontWeight.w800,
+                      fontSize: isCompact ? 20 : null,
                     ),
                   ),
                 ),
@@ -1663,18 +1893,19 @@ class _RoundPanel extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: isCompact ? 10 : 12),
             for (final player in snapshot.players) ...[
               _PlayerPanelRow(
                 player: player,
                 tileCount: snapshot.tileCount,
                 cumulativeScore: match.cumulativeScores[player.index],
+                isCompact: isCompact,
                 isActive:
                     snapshot.phase != GamePhase.complete &&
                     player.index == snapshot.activePlayerIndex,
               ),
               if (player.index != snapshot.players.last.index)
-                const SizedBox(height: 10),
+                SizedBox(height: isCompact ? 8 : 10),
             ],
             if (match.roundHistory.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -1757,12 +1988,14 @@ class _PlayerPanelRow extends StatelessWidget {
     required this.player,
     required this.tileCount,
     required this.cumulativeScore,
+    required this.isCompact,
     required this.isActive,
   });
 
   final PlayerBoard player;
   final int tileCount;
   final int cumulativeScore;
+  final bool isCompact;
   final bool isActive;
 
   @override
@@ -1784,7 +2017,7 @@ class _PlayerPanelRow extends StatelessWidget {
           color: isActive ? playerColor : Colors.white.withValues(alpha: 0.06),
         ),
       ),
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.all(isCompact ? 9 : 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1805,6 +2038,7 @@ class _PlayerPanelRow extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: _ivory,
                     fontWeight: FontWeight.w700,
+                    fontSize: isCompact ? 15 : null,
                   ),
                 ),
               ),
@@ -1816,6 +2050,7 @@ class _PlayerPanelRow extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: player.isShut ? _brass : _ivory,
                       fontWeight: FontWeight.w800,
+                      fontSize: isCompact ? 15 : null,
                     ),
                   ),
                   Text(
