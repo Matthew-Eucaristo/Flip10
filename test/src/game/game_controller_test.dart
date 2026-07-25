@@ -6,12 +6,11 @@ void main() {
   group('GameController', () {
     test('closes selected tiles and waits for the next roll', () {
       final controller = GameController(
-        diceRoller: (_) => const DiceRoll(3, 5),
+        diceRoller: () => const DiceRoll(3, 5),
       );
 
       controller.roll();
-      controller.toggleTile(3);
-      controller.toggleTile(5);
+      controller.selectMove([3, 5]);
       controller.closeSelection();
 
       final snapshot = controller.snapshot;
@@ -21,37 +20,20 @@ void main() {
       expect(snapshot.currentRoll, isNull);
     });
 
-    test('scores a blocked turn and advances to the next player', () {
-      var rollIndex = 0;
-      final rolls = [const DiceRoll(6, 6), const DiceRoll(1, 1)];
-      final controller = GameController(diceRoller: (_) => rolls[rollIndex++])
-        ..newRound(playerCount: 2, tileCount: 3);
+    test('shows the rolled total after a roll', () {
+      final controller = GameController(
+        diceRoller: () => const DiceRoll(4, 5),
+      );
 
       controller.roll();
-      expect(controller.snapshot.phase, GamePhase.blocked);
 
-      controller.scoreBlockedTurn();
-
-      final snapshot = controller.snapshot;
-      expect(snapshot.players.first.score, 6);
-      expect(snapshot.activePlayerIndex, 1);
-      expect(snapshot.phase, GamePhase.waitingForRoll);
-    });
-
-    test('finishes the round when every player has a score', () {
-      final controller = GameController(diceRoller: (_) => const DiceRoll(6, 6))
-        ..newRound(playerCount: 1, tileCount: 3);
-
-      controller.roll();
-      controller.scoreBlockedTurn();
-
-      expect(controller.snapshot.phase, GamePhase.complete);
-      expect(controller.snapshot.winner?.score, 6);
+      expect(controller.snapshot.phase, GamePhase.choosingTiles);
+      expect(controller.snapshot.currentRoll?.total, 9);
     });
 
     test('rejects invalid move presets from callers', () {
       final controller = GameController(
-        diceRoller: (_) => const DiceRoll(3, 5),
+        diceRoller: () => const DiceRoll(3, 5),
       );
 
       controller.roll();
@@ -70,80 +52,108 @@ void main() {
       expect(notifications, 1);
     });
 
-    test('reports shared winners when players tie', () {
-      final controller = GameController(diceRoller: (_) => const DiceRoll(6, 6))
-        ..newRound(playerCount: 2, tileCount: 3);
+    test('roll of 1+1 with tile 2 closed is blocked', () {
+      final controller = GameController(
+        diceRoller: () => const DiceRoll(1, 1),
+      );
 
+      // Round 1: roll 2, close tile 2 (sums to 2, valid).
       controller.roll();
-      controller.scoreBlockedTurn();
-      controller.roll();
-      controller.scoreBlockedTurn();
+      controller.selectMove([2]);
+      controller.closeSelection();
+      expect(controller.snapshot.phase, GamePhase.waitingForRoll);
+      expect(controller.snapshot.activePlayer.openTiles.contains(2), isFalse);
 
-      final snapshot = controller.snapshot;
-      expect(snapshot.phase, GamePhase.complete);
-      expect(snapshot.winner, isNull);
-      expect(snapshot.winners.map((player) => player.name), [
-        'Player 1',
-        'Player 2',
-      ]);
-      expect(snapshot.winners.map((player) => player.score), [6, 6]);
+      // Round 2: roll 2 again; tile 2 is closed, [1,1] is invalid, blocked.
+      controller.roll();
+      expect(controller.snapshot.phase, GamePhase.blocked);
+
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.phase, GamePhase.complete);
+      // Open tiles: {1, 3, 4, 5, 6, 7, 8, 9, 10} → sum = 53
+      expect(controller.snapshot.totalScore, 53);
     });
 
-    test('advances a multi-round match and reports match winners', () {
+    test('nextRound preserves the running total but resets open tiles', () {
       final controller = GameController(
-        diceRoller: (_) => const DiceRoll(6, 6),
-        playerCount: 1,
-        ruleset: const GameRuleset.custom(tileCount: 3),
-        targetRounds: 2,
+        diceRoller: () => const DiceRoll(1, 1),
       );
 
       controller.roll();
-      controller.scoreBlockedTurn();
-
-      expect(controller.snapshot.phase, GamePhase.complete);
-      expect(controller.match.completedRounds, 1);
-      expect(controller.match.isComplete, isFalse);
+      controller.selectMove([2]);
+      controller.closeSelection();
+      expect(controller.snapshot.phase, GamePhase.waitingForRoll);
+      expect(controller.snapshot.totalScore, 0);
 
       controller.nextRound();
-      controller.roll();
-      controller.scoreBlockedTurn();
-
-      expect(controller.match.completedRounds, 2);
-      expect(controller.match.isComplete, isTrue);
-      expect(controller.match.cumulativeScores, [12]);
-      expect(controller.match.winnerIndexes, [0]);
+      expect(controller.snapshot.phase, GamePhase.waitingForRoll);
+      expect(controller.snapshot.activePlayer.openTiles, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+      expect(controller.snapshot.totalScore, 0);
     });
 
-    test('uses one die for classic rules once all open tiles are low', () {
-      final diceCounts = <int>[];
-      final rolls = [
-        const DiceRoll(4, 5),
-        const DiceRoll(4, 4),
-        const DiceRoll(3, 4),
-        const DiceRoll(3),
-      ];
-      var rollIndex = 0;
+    test('newGame resets open tiles, total, and phase', () {
       final controller = GameController(
-        diceRoller: (diceCount) {
-          diceCounts.add(diceCount);
-          return rolls[rollIndex++];
-        },
-        ruleset: GameRuleset.classic9,
+        diceRoller: () => const DiceRoll(1, 1),
       );
 
       controller.roll();
-      controller.selectMove([9]);
+      controller.selectMove([2]);
       controller.closeSelection();
       controller.roll();
-      controller.selectMove([8]);
-      controller.closeSelection();
-      controller.roll();
-      controller.selectMove([7]);
-      controller.closeSelection();
-      controller.roll();
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.totalScore, 53);
 
-      expect(diceCounts, [2, 2, 2, 1]);
-      expect(controller.snapshot.currentRoll?.values, [3]);
+      controller.newGame();
+      expect(controller.snapshot.phase, GamePhase.waitingForRoll);
+      expect(controller.snapshot.totalScore, 0);
+      expect(controller.snapshot.activePlayer.openTiles, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+    });
+
+    test('total accumulates across multiple rounds', () {
+      // Sequence: round 1 (close 2, score 0), round 2 (block, score 53),
+      // then nextRound and block again to add to total.
+      final controller = GameController(
+        diceRoller: () => const DiceRoll(1, 1),
+      );
+
+      // Round 1
+      controller.roll();
+      controller.selectMove([2]);
+      controller.closeSelection();
+      controller.roll();
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.totalScore, 53);
+
+      // Round 2
+      controller.nextRound();
+      controller.roll();
+      controller.selectMove([2]);
+      controller.closeSelection();
+      controller.roll();
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.totalScore, 53 + 53);
+
+      // Round 3
+      controller.nextRound();
+      controller.roll();
+      controller.selectMove([2]);
+      controller.closeSelection();
+      controller.roll();
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.totalScore, 53 * 3);
+    });
+
+    test('scoreBlockedTurn is a no-op when phase is not blocked', () {
+      final controller = GameController(
+        diceRoller: () => const DiceRoll(1, 1),
+      );
+
+      controller.roll();
+      expect(controller.snapshot.phase, GamePhase.choosingTiles);
+
+      controller.scoreBlockedTurn();
+      expect(controller.snapshot.phase, GamePhase.choosingTiles);
+      expect(controller.snapshot.totalScore, 0);
     });
   });
 }

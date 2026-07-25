@@ -1,28 +1,23 @@
 import 'package:flip10/src/app/flip10_app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-  });
-
-  testWidgets('renders the game table and setup controls', (tester) async {
+  testWidgets('renders the game table and primary controls', (tester) async {
     await tester.pumpWidget(const Flip10App());
 
     expect(find.text('Flip10'), findsOneWidget);
-    expect(find.text('Players'), findsOneWidget);
-    expect(find.text('Rules'), findsOneWidget);
-    expect(find.text('Rounds'), findsOneWidget);
-    expect(find.text('Roll dice'), findsWidgets);
+    expect(find.text('Player 1'), findsOneWidget);
     expect(
       find.widgetWithIcon(FilledButton, Icons.casino_rounded),
       findsOneWidget,
     );
+    expect(find.byTooltip('New game'), findsOneWidget);
   });
 
-  testWidgets('shows action-led roll results and move hints', (tester) async {
+  testWidgets('shows action-led roll results and possible moves', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -34,7 +29,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Choose'), findsWidgets);
-    expect(find.text('Best moves'), findsOneWidget);
+    expect(find.textContaining('possible move'), findsOneWidget);
   });
 
   testWidgets('fits the main game surface on a narrow phone viewport', (
@@ -50,29 +45,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.widgetWithText(FilledButton, 'Roll dice'), findsOneWidget);
-    expect(find.byTooltip('New match'), findsOneWidget);
-    expect(find.text('Match'), findsOneWidget);
-    expect(find.byTooltip('Change setup'), findsOneWidget);
-  });
-
-  testWidgets('opens compact setup controls on a phone viewport', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(const Flip10App());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip('Change setup'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Setup'), findsOneWidget);
-    expect(find.text('Players'), findsOneWidget);
-    expect(find.text('Rules'), findsOneWidget);
-    expect(find.text('Rounds'), findsOneWidget);
+    expect(find.byTooltip('New game'), findsOneWidget);
   });
 
   testWidgets('keeps the play surface usable on a short phone viewport', (
@@ -91,33 +64,28 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Choose'), findsWidgets);
-    expect(find.byTooltip('Change setup'), findsOneWidget);
   });
 
-  testWidgets('opens the rules and recent matches sheet', (tester) async {
-    await tester.pumpWidget(const Flip10App());
-
-    await tester.tap(find.byTooltip('Rules and recent matches'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Rules'), findsWidgets);
-    expect(find.text('Lowest total wins'), findsOneWidget);
-    expect(find.text('Flip10'), findsWidgets);
-  });
-
-  testWidgets('normalizes stale saved setup values', (tester) async {
-    SharedPreferences.setMockInitialValues({
-      'flip10.playerCount': 99,
-      'flip10.targetRounds': 2,
-    });
+  testWidgets('New game button on the band resets the session', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const Flip10App());
+
+    // Confirm initial state: score is 55, label is OPEN.
+    expect(find.text('OPEN'), findsOneWidget);
+    expect(find.text('55'), findsOneWidget);
+
+    // Tap the new-game icon on the band.
+    final newGameBtn = find.bySemanticsLabel('New game');
+    expect(newGameBtn, findsOneWidget);
+    await tester.tap(newGameBtn);
     await tester.pumpAndSettle();
 
-    expect(tester.takeException(), isNull);
-    expect(find.widgetWithText(FilledButton, 'Roll dice'), findsWidgets);
-    expect(find.text('4'), findsWidgets);
-    expect(find.text('3'), findsWidgets);
+    expect(find.text('OPEN'), findsOneWidget);
+    expect(find.text('55'), findsOneWidget);
   });
 
   testWidgets('meets core accessibility guidelines', (tester) async {

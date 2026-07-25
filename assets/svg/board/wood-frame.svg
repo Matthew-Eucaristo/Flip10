@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid slice" role="presentation">
+  <defs>
+    <linearGradient id="wood-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7B4D2A"/>
+      <stop offset="0.5" stop-color="#5B371A"/>
+      <stop offset="1" stop-color="#3B2110"/>
+    </linearGradient>
+    <linearGradient id="wood-rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#B7834D"/>
+      <stop offset="1" stop-color="#5B371A"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#wood-grad)"/>
+  <g stroke="#3B2110" stroke-width="0.6" stroke-linecap="round" opacity="0.55" fill="none">
+    <path d="M -10 30 Q 60 22 110 34 T 220 30"/>
+    <path d="M -10 50 Q 70 44 130 56 T 220 52"/>
+    <path d="M -10 72 Q 50 64 110 76 T 220 72"/>
+    <path d="M -10 96 Q 80 90 140 102 T 220 98"/>
+    <path d="M -10 120 Q 50 112 120 124 T 220 122"/>
+    <path d="M -10 144 Q 80 138 150 150 T 220 148"/>
+    <path d="M -10 168 Q 60 162 120 174 T 220 172"/>
+  </g>
+  <g stroke="#B7834D" stroke-width="0.4" stroke-linecap="round" opacity="0.35" fill="none">
+    <path d="M -10 40 Q 70 32 130 44 T 220 40"/>
+    <path d="M -10 86 Q 60 78 130 90 T 220 86"/>
+    <path d="M -10 132 Q 80 124 150 136 T 220 134"/>
+    <path d="M -10 178 Q 50 172 120 184 T 220 180"/>
+  </g>
+  <rect x="0" y="0" width="200" height="6" fill="#B7834D" opacity="0.55"/>
+  <rect x="0" y="194" width="200" height="6" fill="#1A0F06" opacity="0.65"/>
+  <rect x="0" y="0" width="6" height="200" fill="#B7834D" opacity="0.45"/>
+  <rect x="194" y="0" width="6" height="200" fill="#1A0F06" opacity="0.55"/>
+  <rect x="0" y="0" width="200" height="200" fill="none" stroke="url(#wood-rim)" stroke-width="2"/>
+</svg>
