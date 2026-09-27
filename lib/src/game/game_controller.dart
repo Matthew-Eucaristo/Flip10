@@ -36,6 +36,7 @@ final class GameController extends ChangeNotifier {
       phase: GamePhase.waitingForRoll,
       clearRoll: true,
       selectedTiles: const <int>{},
+      rerollsLeft: kRerollsPerRound,
     );
     notifyListeners();
   }
@@ -59,10 +60,36 @@ final class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleTile(int tile) {
+  /// Spend this round's reroll: toss fresh dice while choosing tiles or
+  /// when blocked. A rerolled dead roll may still land blocked again —
+  /// the reroll is spent either way.
+  void reroll() {
+    if (!_snapshot.canReroll) {
+      return;
+    }
+
+    final roll = _diceRoller();
+    final hasMove = GameRules.hasValidMove(
+      openTiles: _snapshot.activePlayer.openTiles,
+      target: roll.total,
+    );
+
+    _snapshot = _snapshot.copyWith(
+      currentRoll: roll,
+      selectedTiles: const <int>{},
+      phase: hasMove ? GamePhase.choosingTiles : GamePhase.blocked,
+      rerollsLeft: _snapshot.rerollsLeft - 1,
+    );
+    notifyListeners();
+  }
+
+  /// Returns true when the tap changed the selection; false when the
+  /// tile could not be picked (closed, or would overshoot the roll) so
+  /// the UI can play rejection feedback.
+  bool toggleTile(int tile) {
     if (_snapshot.phase != GamePhase.choosingTiles ||
         !_snapshot.activePlayer.openTiles.contains(tile)) {
-      return;
+      return false;
     }
 
     final selectedTiles = Set<int>.of(_snapshot.selectedTiles);
@@ -71,13 +98,14 @@ final class GameController extends ChangeNotifier {
     } else {
       final nextTotal = _snapshot.selectedTotal + tile;
       if (nextTotal > _snapshot.currentRoll!.total) {
-        return;
+        return false;
       }
       selectedTiles.add(tile);
     }
 
     _snapshot = _snapshot.copyWith(selectedTiles: selectedTiles);
     notifyListeners();
+    return true;
   }
 
   void selectMove(List<int> tiles) {
@@ -135,10 +163,7 @@ final class GameController extends ChangeNotifier {
       return;
     }
 
-    _completeTurn(
-      _snapshot.players.toList(),
-      score: _snapshot.remainingTotal,
-    );
+    _completeTurn(_snapshot.players.toList(), score: _snapshot.remainingTotal);
   }
 
   void _completeTurn(List<PlayerBoard> players, {required int score}) {
@@ -152,8 +177,6 @@ final class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static DiceRoll _randomRoll() => DiceRoll(
-    _random.nextInt(6) + 1,
-    _random.nextInt(6) + 1,
-  );
+  static DiceRoll _randomRoll() =>
+      DiceRoll(_random.nextInt(6) + 1, _random.nextInt(6) + 1);
 }

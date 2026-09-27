@@ -12,15 +12,32 @@ art, procedural audio, installable PWA.
   remaining open tiles is added to your running total.
 - Close every tile (1-10) in a single turn to "shut the box" — perfect round,
   nothing added to the total.
+- Once per round, **REROLL** throws fresh dice — even on a dead roll.
 - After a round, tap **Play again** to start the next round (total is kept)
   or the **New game** icon in the active-player band to reset the total.
+
+## Feel & features
+
+- **3D tile flips** — every close/reopen flips the tile around its vertical
+  axis, staggered left-to-right so multi-tile plays sweep across the rack.
+- **Feedback everywhere** — tiles pop + lift on select, shake on an illegal
+  pick (with a deny buzz), the board shakes on a blocked roll, and shutting
+  the box fires a confetti burst over the felt.
+- **Score fly-up** — "+N" floats off the total when a round banks points.
+- **Round medals** — gold for a shut box, silver <= 10, bronze <= 20, plus a
+  NEW BEST tag when the round beats your lifetime record.
+- **Records & settings** — the gear button opens lifetime stats (best round,
+  shut boxes, streak, rounds), sound/haptics toggles, and a rules card — all
+  persisted locally via `shared_preferences`. New cues: `select`/`deny`.
+- **PWA install banner** — soft install prompt on supported browsers.
 
 ## Stack
 
 - Flutter Material 3 app shell
 - Pure Dart game rules (`lib/src/game/game_rules.dart`) and turn state
   (`lib/src/game/game_models.dart`, `game_controller.dart`)
-- Local settings persistence with `shared_preferences` (PWA install banner state)
+- Local persistence with `shared_preferences` (PWA banner, lifetime stats,
+  sound/haptics settings) via `lib/src/services/app_store.dart`
 - `flutter_svg` for inline SVG art; custom audio service:
   `audioplayers` on Android/iOS/desktop, raw `HTMLAudioElement` on web
   (the `audioplayers_web` event channel is broken on current Flutter web)
@@ -65,14 +82,19 @@ lib/
       game_controller.dart           # newGame(), nextRound(), roll, toggleTile, ...
     ui/
       game_screen.dart               # LayoutBuilder phone vs desktop
-      board/                         # BoardTable, TileRack, DiceRow, NumberTile,
-                                     # MoveHints, ActionPrompt, ActionRow,
-                                     # ActivePlayerBand (with New game icon)
+      board/                         # BoardTable, TileRack, DiceRow, NumberTile
+                                     # (3D flip + reject shake), MoveHints,
+                                     # ActionPrompt (medals + NEW BEST),
+                                     # ActionRow, ActivePlayerBand (+N fly-up,
+                                     # menu button), RerollChip,
+                                     # CelebrationBurst (confetti)
       common/                        # SvgIcon, BrassPlate
       feedback/                      # Haptics, Audio (abstract + native + web),
                                      # PwaInstallBanner (web + stub)
       header/                        # BrandMark, GameHeader (brand only)
+      menu/game_menu_sheet.dart      # Records, sound/haptics, how-to
       theme/flip10_colors.dart       # palette
+    services/app_store.dart          # Lifetime stats + settings persistence
 ```
 
 `GameSnapshot` is immutable; the controller emits a fresh snapshot on every
@@ -94,7 +116,7 @@ fallback font). The full asset pipeline is reproducible:
 | Tiles             | `tools/gen_tiles.py`                              | `assets/svg/tiles/tile-{ivory,selected,hinted}-{1..10}.svg`, `tile-closed.svg`, `tile-mini-*.svg` |
 | Dice faces        | `tools/gen_dice.py`                               | `assets/svg/dice/face-{1..6}.svg`, tumble variants, `face-blank` |
 | Phase / medal art | `assets/svg/misc/`                                | inlined via `SvgIcon`                                           |
-| Audio cues        | `tools/gen_audio.py`                              | `assets/audio/{roll,flip,success,blocked}.wav`                  |
+| Audio cues        | `tools/gen_audio.py`                              | `assets/audio/{roll,flip,select,deny,success,blocked}.wav`      |
 | PWA icons         | `tools/gen_icons.py`                              | `web/favicon.png`, `web/icons/Icon-{192,512}.png`, `Icon-maskable-{192,512}.png` |
 
 All Python tools live in `tools/`. They use a project-local virtual
