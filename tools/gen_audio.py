@@ -4,6 +4,8 @@
 Outputs 16-bit mono PCM WAVs into assets/audio/:
   - roll.wav    : 0.45s  tumbling dice (filtered noise + low thumps)
   - flip.wav    : 0.10s  wood click (short tonal pop)
+  - select.wav  : 0.06s  felt tick (soft high blip for picking a tile)
+  - deny.wav    : 0.14s  dull buzz (illegal pick rejection)
   - success.wav : 0.65s  brass chime (additive sine harmonics with decay)
   - blocked.wav : 0.30s  soft thud (low sine with quick decay)
 
@@ -81,6 +83,35 @@ def gen_flip() -> None:
     write_wav("flip.wav", samples)
 
 
+def gen_select() -> None:
+    print("select.wav")
+    total = 0.06
+    n = int(SR * total)
+    samples = []
+    for i in range(n):
+        t = i / SR
+        env = envelope(t, total, 0.001, 0.03) * 0.75
+        body = math.sin(2 * math.pi * 880 * t) * math.exp(-55 * t)
+        tick = math.sin(2 * math.pi * 2600 * t) * math.exp(-260 * t) * 0.35
+        samples.append((body + tick) * env)
+    write_wav("select.wav", samples)
+
+
+def gen_deny() -> None:
+    print("deny.wav")
+    total = 0.14
+    n = int(SR * total)
+    samples = []
+    for i in range(n):
+        t = i / SR
+        env = envelope(t, total, 0.004, 0.06) * 0.8
+        # detuned low pair reads as a flat "nope" without being harsh
+        body = math.sin(2 * math.pi * 140 * t) * math.exp(-16 * t)
+        rub = math.sin(2 * math.pi * 148 * t) * math.exp(-16 * t)
+        samples.append((body + rub) * 0.5 * env)
+    write_wav("deny.wav", samples)
+
+
 def gen_success() -> None:
     print("success.wav")
     notes = [(523.25, 0.0), (659.25, 0.08), (783.99, 0.16), (1046.5, 0.24)]
@@ -122,6 +153,8 @@ def main() -> None:
     print(f"Writing audio cues to {OUT}")
     gen_roll()
     gen_flip()
+    gen_select()
+    gen_deny()
     gen_success()
     gen_blocked()
     print("done.")

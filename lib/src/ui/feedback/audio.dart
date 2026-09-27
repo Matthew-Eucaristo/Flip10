@@ -1,7 +1,9 @@
-import 'audio_native.dart' if (dart.library.js_interop) 'audio_web.dart' as platform;
+import 'audio_native.dart'
+    if (dart.library.js_interop) 'audio_web.dart'
+    as platform;
 
 /// Cue names correspond to the WAVs in `assets/audio/`.
-enum Sfx { roll, flip, success, blocked }
+enum Sfx { roll, flip, select, deny, success, blocked }
 
 /// Platform-agnostic audio service. The native implementation uses
 /// `audioplayers`; the web implementation uses HTML5 audio via
@@ -15,4 +17,5 @@ abstract class AudioService {
 }
 
 /// Construct the platform-appropriate [AudioService].
-Future<AudioService> createAudioService() => platform.createPlatformAudioService();
+Future<AudioService> createAudioService() =>
+    platform.createPlatformAudioService();

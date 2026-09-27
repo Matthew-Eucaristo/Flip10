@@ -4,6 +4,10 @@
 const int kTileCount = 10;
 const int kDiceCount = 2;
 
+/// Rerolls granted each round. A reroll tosses fresh dice while choosing
+/// tiles or when blocked — the only escape from a dead roll.
+const int kRerollsPerRound = 1;
+
 enum GamePhase { waitingForRoll, choosingTiles, blocked, complete }
 
 final class DiceRoll {
@@ -24,9 +28,8 @@ final class PlayerBoard {
   PlayerBoard({required Iterable<int> openTiles})
     : openTiles = Set<int>.unmodifiable(openTiles);
 
-  factory PlayerBoard.initial() => PlayerBoard(
-    openTiles: List<int>.generate(kTileCount, (i) => i + 1),
-  );
+  factory PlayerBoard.initial() =>
+      PlayerBoard(openTiles: List<int>.generate(kTileCount, (i) => i + 1));
 
   final Set<int> openTiles;
 
@@ -50,6 +53,7 @@ final class GameSnapshot {
     this.currentRoll,
     Iterable<int> selectedTiles = const [],
     this.totalScore = 0,
+    this.rerollsLeft = kRerollsPerRound,
   }) : players = List<PlayerBoard>.unmodifiable(players),
        selectedTiles = Set<int>.unmodifiable(selectedTiles);
 
@@ -70,7 +74,16 @@ final class GameSnapshot {
   /// [GameController.nextRound].
   final int totalScore;
 
+  /// Rerolls remaining this round. Spent by [GameController.reroll].
+  final int rerollsLeft;
+
   PlayerBoard get activePlayer => players[activePlayerIndex];
+
+  /// True while a reroll could still change the outcome of this round.
+  bool get canReroll =>
+      rerollsLeft > 0 &&
+      (phase == GamePhase.choosingTiles || phase == GamePhase.blocked);
+
   int get remainingTotal => activePlayer.remainingTotal;
   int get selectedTotal => selectedTiles.fold(0, (sum, tile) => sum + tile);
   bool get isSelectionValid => selectedTotal == currentRoll?.total;
@@ -84,6 +97,7 @@ final class GameSnapshot {
     bool clearRoll = false,
     Iterable<int>? selectedTiles,
     int? totalScore,
+    int? rerollsLeft,
   }) {
     return GameSnapshot(
       players: players ?? this.players,
@@ -92,6 +106,7 @@ final class GameSnapshot {
       currentRoll: clearRoll ? null : currentRoll ?? this.currentRoll,
       selectedTiles: selectedTiles ?? this.selectedTiles,
       totalScore: totalScore ?? this.totalScore,
+      rerollsLeft: rerollsLeft ?? this.rerollsLeft,
     );
   }
 }

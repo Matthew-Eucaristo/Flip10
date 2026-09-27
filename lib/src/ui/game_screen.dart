@@ -4,12 +4,14 @@ import 'package:flutter/semantics.dart';
 
 import '../game/game_controller.dart';
 import '../game/game_models.dart';
+import '../services/app_store.dart';
 import 'board/action_row.dart';
 import 'board/board_table.dart';
 import 'feedback/audio.dart';
 import 'feedback/haptics.dart';
 import 'feedback/pwa_install_banner.dart';
 import 'header/game_header.dart';
+import 'menu/game_menu_sheet.dart';
 import 'theme/flip10_colors.dart';
 
 class GameScreen extends StatefulWidget {
@@ -22,13 +24,25 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   late final GameController _controller = GameController();
   AudioService? _audio;
+  AppStore? _store;
   bool _isRolling = false;
   int _rollToken = 0;
+
+  /// Most recent rejected tile pick — drives the shake + deny cue.
+  int? _rejectedTile;
+  int _rejectNonce = 0;
+
+  /// Bumped on every shut-the-box to replay the confetti burst.
+  int _celebrateNonce = 0;
+
+  /// True when the just-finished round beat the lifetime best.
+  bool _isNewBest = false;
 
   @override
   void initState() {
     super.initState();
     _initAudio();
+    _initStore();
   }
 
   Future<void> _initAudio() async {
@@ -47,6 +61,17 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  Future<void> _initStore() async {
+    try {
+      final store = await AppStore.load();
+      if (!mounted) return;
+      FlipHaptics.enabled = store.hapticsOn;
+      setState(() => _store = store);
+    } catch (_) {
+      // Persistence is optional; the game plays fine without it.
+    }
+  }
+
   /// Detect widget-test environment without importing test bindings.
   static bool _isTestEnvironment() {
     final binding = WidgetsBinding.instance;
@@ -62,12 +87,21 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
+  bool get _soundOn => _store?.soundOn ?? true;
+
+  void _play(Sfx cue) {
+    if (_soundOn) {
+      _audio?.play(cue);
+    }
+  }
+
   void _newGame() {
     _rollToken++;
     if (_isRolling) {
       setState(() => _isRolling = false);
     }
     _controller.newGame();
+    _isNewBest = false;
     FlipHaptics.selection();
     _announce(
       '${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
@@ -76,24 +110,37 @@ class _GameScreenState extends State<GameScreen> {
 
   void _nextRound() {
     _controller.nextRound();
+    _isNewBest = false;
     _announce(
       '${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
     );
   }
 
-  Future<void> _roll() async {
-    if (_isRolling || _controller.snapshot.phase != GamePhase.waitingForRoll) {
+  /// Shared dice tumble for the initial roll and the once-per-round
+  /// reroll. [isReroll] picks which controller entrypoint runs when the
+  /// tumble finishes.
+  Future<void> _performRoll({required bool isReroll}) async {
+    if (_isRolling) {
+      return;
+    }
+    if (isReroll) {
+      if (!_controller.snapshot.canReroll) return;
+    } else if (_controller.snapshot.phase != GamePhase.waitingForRoll) {
       return;
     }
     setState(() => _isRolling = true);
     final rollToken = ++_rollToken;
     FlipHaptics.light();
-    _audio?.play(Sfx.roll);
+    _play(Sfx.roll);
     await Future<void>.delayed(const Duration(milliseconds: 480));
     if (!mounted || rollToken != _rollToken) {
       return;
     }
-    _controller.roll();
+    if (isReroll) {
+      _controller.reroll();
+    } else {
+      _controller.roll();
+    }
     setState(() => _isRolling = false);
     _announce(
       '${_statusCopy(_controller.snapshot)}. ${_actionDetail(_controller.snapshot)}',
@@ -101,19 +148,26 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _toggleTile(int tile) {
-    final before = _controller.snapshot.selectedTiles;
-    _controller.toggleTile(tile);
-    final after = _controller.snapshot.selectedTiles;
-    if (before.length == after.length && before.containsAll(after)) {
+    final accepted = _controller.toggleTile(tile);
+    if (!accepted) {
+      setState(() {
+        _rejectedTile = tile;
+        _rejectNonce++;
+      });
+      FlipHaptics.medium();
+      _play(Sfx.deny);
+      _announce('Cannot use $tile for this roll.');
       return;
     }
     FlipHaptics.selection();
+    _play(Sfx.select);
     _announce(_actionDetail(_controller.snapshot));
   }
 
   void _selectMove(List<int> move) {
     _controller.selectMove(move);
     FlipHaptics.selection();
+    _play(Sfx.select);
     _announce(
       'Selected ${move.join(' plus ')}. ${_actionDetail(_controller.snapshot)}',
     );
@@ -126,22 +180,61 @@ class _GameScreenState extends State<GameScreen> {
         _controller.snapshot.selectedTiles.length;
     _controller.closeSelection();
     FlipHaptics.medium();
-    _audio?.play(Sfx.flip);
+    _play(Sfx.flip);
     if (shutTheBox) {
-      _audio?.play(Sfx.success);
+      _play(Sfx.success);
       FlipHaptics.heavy();
+      setState(() => _celebrateNonce++);
     }
     _announce(
       'Closed $total. ${_statusCopy(_controller.snapshot)}. ${_actionTitle(_controller.snapshot)}.',
     );
+    _recordRoundIfComplete();
   }
 
   void _scoreBlockedTurn() {
     final score = _controller.snapshot.activePlayer.remainingTotal;
     _controller.scoreBlockedTurn();
     FlipHaptics.medium();
-    _audio?.play(Sfx.blocked);
+    _play(Sfx.blocked);
     _announce('Scored $score. ${_statusCopy(_controller.snapshot)}.');
+    _recordRoundIfComplete();
+  }
+
+  /// Persist the round into lifetime stats when the phase just became
+  /// [GamePhase.complete]. Flags [isNewBest] for the prompt's badge.
+  Future<void> _recordRoundIfComplete() async {
+    final snapshot = _controller.snapshot;
+    final store = _store;
+    if (snapshot.phase != GamePhase.complete || store == null) {
+      return;
+    }
+    try {
+      final record = await store.recordRound(
+        score: snapshot.isShut ? 0 : snapshot.remainingTotal,
+        isShut: snapshot.isShut,
+      );
+      if (mounted) {
+        setState(() => _isNewBest = record.isNewBest);
+      }
+    } catch (_) {
+      // Persistence is optional.
+    }
+  }
+
+  void _openMenu() {
+    final store = _store;
+    if (store == null) {
+      return;
+    }
+    FlipHaptics.selection();
+    showGameMenuSheet(
+      context,
+      store: store,
+      onChanged: () => setState(() {
+        FlipHaptics.enabled = store.hapticsOn;
+      }),
+    );
   }
 
   void _announce(String message) {
@@ -190,16 +283,22 @@ class _GameScreenState extends State<GameScreen> {
                             snapshot: snapshot,
                             isRolling: _isRolling,
                             isCompact: isPhone,
-                            onRoll: _roll,
+                            onRoll: () => _performRoll(isReroll: false),
                             onTilePressed: _toggleTile,
                             onMovePressed: _selectMove,
                             onClose: _closeSelection,
                             onNewGame: _newGame,
+                            onReroll: () => _performRoll(isReroll: true),
+                            onMenu: _openMenu,
+                            rejectedTile: _rejectedTile,
+                            rejectNonce: _rejectNonce,
+                            celebrateNonce: _celebrateNonce,
+                            isNewBest: _isNewBest,
                           );
                           final actions = ActionRow(
                             snapshot: snapshot,
                             isRolling: _isRolling,
-                            onRoll: _roll,
+                            onRoll: () => _performRoll(isReroll: false),
                             onClose: _closeSelection,
                             onScore: _scoreBlockedTurn,
                             onPlayAgain: _nextRound,
@@ -274,7 +373,9 @@ String _actionDetail(GameSnapshot snapshot) {
       'You have ${snapshot.activePlayer.remainingTotal} points open.',
     GamePhase.choosingTiles => _selectionDetail(snapshot),
     GamePhase.blocked =>
-      'Score ${snapshot.activePlayer.remainingTotal} to end the round.',
+      snapshot.canReroll
+          ? 'Score ${snapshot.activePlayer.remainingTotal} — or reroll once.'
+          : 'Score ${snapshot.activePlayer.remainingTotal} to end the round.',
     GamePhase.complete =>
       snapshot.isShut ? 'Shut the box!' : 'Scored ${snapshot.remainingTotal}.',
   };

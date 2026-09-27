@@ -4,6 +4,10 @@ import '../../game/game_models.dart';
 import 'number_tile.dart';
 
 /// A wrap-laid-out rack of number tiles for the active player.
+///
+/// Tiles flip with a left-to-right stagger ([NumberTile.flipDelay]) and
+/// shake when a pick is rejected — [rejectedTile]/[rejectNonce] identify
+/// the last rejected pick.
 class TileRack extends StatelessWidget {
   const TileRack({
     super.key,
@@ -11,12 +15,20 @@ class TileRack extends StatelessWidget {
     required this.previewTiles,
     required this.isCompact,
     required this.onTilePressed,
+    this.rejectedTile,
+    this.rejectNonce = 0,
   });
 
   final GameSnapshot snapshot;
   final Set<int> previewTiles;
   final bool isCompact;
   final ValueChanged<int> onTilePressed;
+
+  /// The tile of the most recent rejected pick, if any.
+  final int? rejectedTile;
+
+  /// Bumped on every rejected pick so repeats of the same tile re-shake.
+  final int rejectNonce;
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +42,9 @@ class TileRack extends StatelessWidget {
         final maxTileWidth = isCompact ? 54.0 : 60.0;
         final columns =
             ((constraints.maxWidth + spacing) / (idealTileWidth + spacing))
-                    .floor()
-                    .clamp(1, kTileCount)
-                    .toInt();
+                .floor()
+                .clamp(1, kTileCount)
+                .toInt();
         final tileWidth =
             ((constraints.maxWidth - spacing * (columns - 1)) / columns)
                 .clamp(minTileWidth, maxTileWidth)
@@ -51,6 +63,8 @@ class TileRack extends StatelessWidget {
                 state: _stateFor(tile, target),
                 width: tileWidth,
                 height: tileHeight,
+                flipDelay: Duration(milliseconds: 40 * (tile - 1)),
+                rejectNonce: tile == rejectedTile ? rejectNonce : 0,
                 onPressed: () => onTilePressed(tile),
               ),
           ],

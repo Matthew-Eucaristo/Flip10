@@ -23,6 +23,10 @@ class WebAudioService implements AudioService {
         return 'assets/assets/audio/roll.wav';
       case Sfx.flip:
         return 'assets/assets/audio/flip.wav';
+      case Sfx.select:
+        return 'assets/assets/audio/select.wav';
+      case Sfx.deny:
+        return 'assets/assets/audio/deny.wav';
       case Sfx.success:
         return 'assets/assets/audio/success.wav';
       case Sfx.blocked:

@@ -48,6 +48,10 @@ class AudioPlayersService implements AudioService {
         return 'audio/roll.wav';
       case Sfx.flip:
         return 'audio/flip.wav';
+      case Sfx.select:
+        return 'audio/select.wav';
+      case Sfx.deny:
+        return 'audio/deny.wav';
       case Sfx.success:
         return 'audio/success.wav';
       case Sfx.blocked:
@@ -62,4 +66,5 @@ class AudioPlayersService implements AudioService {
 }
 
 /// Entry point imported via conditional import from `audio.dart`.
-Future<AudioService> createPlatformAudioService() => AudioPlayersService.create();
+Future<AudioService> createPlatformAudioService() =>
+    AudioPlayersService.create();
