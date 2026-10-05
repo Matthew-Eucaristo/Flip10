@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="presentation">
+  <defs>
+    <linearGradient id="medal-b" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E8A06A"/>
+      <stop offset="0.5" stop-color="#B86B33"/>
+      <stop offset="1" stop-color="#5B2E0E"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="28" r="18" fill="url(#medal-b)" stroke="#2A1305" stroke-width="1.2"/>
+  <circle cx="32" cy="28" r="13" fill="none" stroke="#2A1305" stroke-width="0.6" opacity="0.5"/>
+  <text x="32" y="34" text-anchor="middle" font-family="Georgia, serif" font-weight="900" font-size="18" fill="#2A1305">3</text>
+  <path d="M 18 42 L 24 60 L 32 56 L 40 60 L 46 42 Z" fill="#4FA3FF" stroke="#0A1F38" stroke-width="1"/>
+</svg>

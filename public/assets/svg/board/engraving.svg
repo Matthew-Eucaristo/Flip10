@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 60" role="presentation">
+  <g fill="#D7A941" opacity="0.55">
+    <text x="110" y="36" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="900" font-size="22" letter-spacing="8">FLIP 10</text>
+  </g>
+  <g stroke="#D7A941" stroke-width="1" opacity="0.45" fill="none">
+    <line x1="0" y1="48" x2="60" y2="48"/>
+    <line x1="160" y1="48" x2="220" y2="48"/>
+  </g>
+  <g fill="#D7A941" opacity="0.7">
+    <circle cx="64" cy="48" r="1.4"/>
+    <circle cx="156" cy="48" r="1.4"/>
+  </g>
+</svg>

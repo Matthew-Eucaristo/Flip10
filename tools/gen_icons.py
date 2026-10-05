@@ -2,12 +2,12 @@
 """Generate web PNG icons from assets/svg/misc/brand-mark.svg.
 
 Outputs:
-  - web/favicon.svg
-  - web/favicon.png (32x32)
-  - web/icons/Icon-192.png
-  - web/icons/Icon-512.png
-  - web/icons/Icon-maskable-192.png
-  - web/icons/Icon-maskable-512.png
+  - public/favicon.svg
+  - public/favicon.png (32x32)
+  - public/icons/Icon-192.png
+  - public/icons/Icon-512.png
+  - public/icons/Icon-maskable-192.png
+  - public/icons/Icon-maskable-512.png
 
 Requires: cairosvg, pillow (PIL).
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "assets" / "svg" / "misc" / "brand-mark.svg"
-WEB = REPO / "web"
+WEB = REPO / "public"
 ICONS = WEB / "icons"
 
 
@@ -69,7 +69,7 @@ def main() -> None:
 
     # web/favicon.svg: copy of the master mark
     shutil.copy2(SRC, WEB / "favicon.svg")
-    print(f"  -> web/favicon.svg")
+    print("  -> public/favicon.svg")
 
     # PNG fallbacks
     render_png(SRC, WEB / "favicon.png", 32)
