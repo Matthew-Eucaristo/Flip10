@@ -4,6 +4,8 @@ A focused offline Shut the Box dice game. One player, ten tiles, two dice,
 unlimited rounds. The board uses the original hand-drawn SVG art and
 procedural audio. Records, sound, and haptics stay in the browser.
 
+**Website:** https://matthew-eucaristo.github.io/Flip10/ (play in the browser)
+
 ## Gameplay
 
 - Roll two dice, then close any combination of open tiles whose digits sum to
@@ -32,6 +34,13 @@ There is no server. A push to `main` can build this with:
 | Root directory | `/` |
 | Build command | `npm run build` |
 | Build output directory | `out` |
+
+GitHub Pages: `.github/workflows/pages.yml` runs the type check and tests,
+then builds with `PAGES_BASE_PATH` and `PAGES_SITE_URL` from
+`actions/configure-pages`, so the export lives under `/Flip10/` and gets the
+canonical URL and social card (`public/og.png`). Without those variables the
+build is unchanged and serves from `/`. Files in `public/` must be referenced
+through `withBase()` from `lib/base-path.ts`, never as bare `/...` URLs.
 
 ## Commands
 
