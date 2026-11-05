@@ -23,16 +23,17 @@ import {
   saveSoundOn,
   saveStats,
 } from "@/lib/stats";
+import { withBase } from "@/lib/base-path";
 
 type Sfx = "roll" | "flip" | "select" | "deny" | "success" | "blocked";
 
 const AUDIO: Record<Sfx, string> = {
-  roll: "/assets/audio/roll.wav",
-  flip: "/assets/audio/flip.wav",
-  select: "/assets/audio/select.wav",
-  deny: "/assets/audio/deny.wav",
-  success: "/assets/audio/success.wav",
-  blocked: "/assets/audio/blocked.wav",
+  roll: withBase("/assets/audio/roll.wav"),
+  flip: withBase("/assets/audio/flip.wav"),
+  select: withBase("/assets/audio/select.wav"),
+  deny: withBase("/assets/audio/deny.wav"),
+  success: withBase("/assets/audio/success.wav"),
+  blocked: withBase("/assets/audio/blocked.wav"),
 };
 
 function playCue(cue: Sfx) {
@@ -77,19 +78,19 @@ function promptCopy(snapshot: GameSnapshot): { title: string; detail: string } {
 }
 
 function phaseArt(snapshot: GameSnapshot): string {
-  if (snapshot.phase === "waitingForRoll") return "/assets/svg/misc/phase-dice.svg";
-  if (snapshot.phase === "choosingTiles") return "/assets/svg/misc/phase-hand.svg";
-  if (snapshot.phase === "blocked") return "/assets/svg/misc/phase-warning.svg";
+  if (snapshot.phase === "waitingForRoll") return withBase("/assets/svg/misc/phase-dice.svg");
+  if (snapshot.phase === "choosingTiles") return withBase("/assets/svg/misc/phase-hand.svg");
+  if (snapshot.phase === "blocked") return withBase("/assets/svg/misc/phase-warning.svg");
   const score = remainingTotal(activePlayer(snapshot));
-  if (score === 0) return "/assets/svg/misc/medal-gold.svg";
-  if (score <= 10) return "/assets/svg/misc/medal-silver.svg";
-  if (score <= 20) return "/assets/svg/misc/medal-bronze.svg";
-  return "/assets/svg/misc/phase-trophy.svg";
+  if (score === 0) return withBase("/assets/svg/misc/medal-gold.svg");
+  if (score <= 10) return withBase("/assets/svg/misc/medal-silver.svg");
+  if (score <= 20) return withBase("/assets/svg/misc/medal-bronze.svg");
+  return withBase("/assets/svg/misc/phase-trophy.svg");
 }
 
 function tileArt(number: number, state: "open" | "closed" | "selected" | "hinted"): string {
-  if (state === "closed") return "/assets/svg/tiles/tile-closed.svg";
-  return `/assets/svg/tiles/tile-${state === "open" ? "ivory" : state}-${number}.svg`;
+  if (state === "closed") return withBase("/assets/svg/tiles/tile-closed.svg");
+  return withBase(`/assets/svg/tiles/tile-${state === "open" ? "ivory" : state}-${number}.svg`);
 }
 
 export function GameScreen() {
@@ -121,7 +122,7 @@ export function GameScreen() {
     setHapticsOn(loadHapticsOn());
     setStats(loadStats());
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      navigator.serviceWorker.register(withBase("/sw.js")).catch(() => undefined);
     }
     const onPrompt = (event: Event) => {
       event.preventDefault();
@@ -263,7 +264,7 @@ export function GameScreen() {
       </p>
       <div className="stage">
         <header className="brand">
-          <img src="/assets/svg/misc/brand-mark.svg" alt="" width={42} height={42} />
+          <img src={withBase("/assets/svg/misc/brand-mark.svg")} alt="" width={42} height={42} />
           <div>
             <h1>Flip10</h1>
             <p>Shut the box</p>
@@ -271,9 +272,9 @@ export function GameScreen() {
         </header>
 
         <section className={`board ${shakeBoard ? "shake" : ""}`} key={shakeBoard || "board"}>
-          <img className="wood" src="/assets/svg/board/wood-frame.svg" alt="" />
+          <img className="wood" src={withBase("/assets/svg/board/wood-frame.svg")} alt="" />
           <div className="felt">
-            <img className="felt-art" src="/assets/svg/board/felt.svg" alt="" />
+            <img className="felt-art" src={withBase("/assets/svg/board/felt.svg")} alt="" />
             <div className="felt-content">
               <div className="band">
                 <span className="player-mark" />
@@ -361,7 +362,7 @@ export function GameScreen() {
               )}
             </div>
             {["tl", "tr", "bl", "br"].map((corner) => (
-              <img key={corner} className={`corner ${corner}`} src="/assets/svg/board/corner.svg" alt="" />
+              <img key={corner} className={`corner ${corner}`} src={withBase("/assets/svg/board/corner.svg")} alt="" />
             ))}
             {bursts.map((id) => (
               <Burst key={id} onDone={() => setBursts((current) => current.filter((item) => item !== id))} />
@@ -462,7 +463,7 @@ function Dice({
   return (
     <div className="dice" aria-label={label}>
       {faces.map((face, index) => (
-        <img key={`${index}-${face}`} src={`/assets/svg/dice/${face}.svg`} alt="" />
+        <img key={`${index}-${face}`} src={withBase(`/assets/svg/dice/${face}.svg`)} alt="" />
       ))}
       {roll && !rolling ? <strong>{rollTotal(roll)}</strong> : null}
     </div>
@@ -568,6 +569,9 @@ function Menu({
           <li>Close all 10 tiles in one round to shut the box: zero points.</li>
           <li>Stuck? Once per round, REROLL throws fresh dice — even on a dead roll.</li>
         </ul>
+        <p className="source">
+          <a href="https://github.com/Matthew-Eucaristo/Flip10">Source on GitHub</a>
+        </p>
         <button type="button" className="btn brass" onClick={onClose}>
           Close
         </button>
