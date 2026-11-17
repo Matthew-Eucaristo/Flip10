@@ -69,7 +69,6 @@ def tumble_svg2(opacity: float = 0.55) -> str:
     ).replace('fill="{INK}"/>', f'fill="{INK}" opacity="{opacity}"/>')
 
 
-# Position templates
 PIP_LAYOUTS = {
     1: [(50, 50)],
     2: [(28, 28), (72, 72)],

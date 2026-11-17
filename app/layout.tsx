@@ -9,8 +9,6 @@ const body = Outfit({ subsets: ["latin"], variable: "--font-body" });
 const title = "Flip10 - Shut the Box";
 const description = "A focused offline Shut the Box dice game. Roll, choose, shut the box.";
 
-// Absolute URL of the deployed site, set only by the GitHub Pages workflow.
-// Social cards and the canonical link need it; other builds omit them.
 const siteUrl = process.env.PAGES_SITE_URL?.replace(/\/*$/, "/");
 
 export const metadata: Metadata = {

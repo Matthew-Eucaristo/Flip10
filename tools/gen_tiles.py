@@ -20,8 +20,6 @@ BRASS_MID = "#D7A941"
 BRASS_DARK = "#7E5A12"
 INK = "#201610"
 
-# Hand-drawn digit paths inside a 24x32 viewBox, origin at top-left.
-# Designed in a chunky slab-serif style with rounded terminals.
 DIGITS = {
     0: "M 7 2 C 3 2 2 5 2 9 L 2 23 C 2 27 3 30 7 30 L 17 30 C 21 30 22 27 22 23 L 22 9 C 22 5 21 2 17 2 Z M 7 6 L 17 6 C 18 6 18 7 18 9 L 18 23 C 18 25 18 26 17 26 L 7 26 C 6 26 6 25 6 23 L 6 9 C 6 7 6 6 7 6 Z",
     1: "M 8 6 L 14 4 L 14 28 L 18 28 L 18 30 L 8 30 L 8 28 L 12 28 L 12 8 L 9 9 Z",
@@ -49,19 +47,14 @@ def _number_paths(number: int) -> str:
     """Compose a multi-digit number centered in a 48x68 area (between the
     brass nameplate at the top and the bottom of the tile)."""
     digits = [int(c) for c in str(number)]
-    digit_w = 24  # digit viewBox width
-    digit_h = 32  # digit viewBox height
-    total_w = digit_w * len(digits) - 4 * (len(digits) - 1)  # small gap
-    # The tile is 60x100; nameplate ends at y=12; bottom is y=100.
-    # Center the number in the remaining body (y=14 to y=96, so 82px tall).
-    # Scale digit to fit nicely.
+    digit_w = 24
+    digit_h = 32
+    total_w = digit_w * len(digits) - 4 * (len(digits) - 1)
     available_w = 48
     available_h = 56
-    target_h = available_h - 4  # some padding
+    target_h = available_h - 4
     scale = min(target_h / digit_h, available_w / total_w)
     rendered_w = total_w * scale
-    # Tile inner area: x=3 to x=57 (width 54), y=12 to y=97 (height 85)
-    # Center horizontally around x=30
     start_x = 30 - rendered_w / 2
     start_y = 14 + (available_h - digit_h * scale) / 2
     parts = []
@@ -197,7 +190,6 @@ def main() -> None:
     (OUT / "tile-closed.svg").write_text(write_closed())
     (OUT / "tile-mini-ivory.svg").write_text(write_mini_ivory())
     (OUT / "tile-mini-closed.svg").write_text(write_mini_closed())
-    # Remove the generic non-numbered tile files; we now have per-number variants.
     for f in ["tile-ivory.svg", "tile-selected.svg", "tile-hinted.svg"]:
         old = OUT / f
         if old.exists():

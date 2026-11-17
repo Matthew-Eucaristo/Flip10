@@ -51,7 +51,7 @@ def render_maskable(src_svg: Path, dst_png: Path, size: int) -> None:
     from PIL import Image
     import io
 
-    bg_color = (11, 107, 71, 255)  # #0B6B47 (slightly darker than felt for contrast)
+    bg_color = (11, 107, 71, 255)
     canvas = Image.new("RGBA", (size, size), bg_color)
     inner_size = int(size * 0.6)
     inner = Image.open(io.BytesIO(cairosvg.svg2png(url=str(src_svg), output_width=inner_size, output_height=inner_size)))
@@ -67,11 +67,9 @@ def main() -> None:
         sys.exit(1)
     check_deps()
 
-    # web/favicon.svg: copy of the master mark
     shutil.copy2(SRC, WEB / "favicon.svg")
     print("  -> public/favicon.svg")
 
-    # PNG fallbacks
     render_png(SRC, WEB / "favicon.png", 32)
     render_png(SRC, ICONS / "Icon-192.png", 192)
     render_png(SRC, ICONS / "Icon-512.png", 512)

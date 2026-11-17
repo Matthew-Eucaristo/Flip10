@@ -61,7 +61,6 @@ def gen_roll() -> None:
         t = i / SR
         env = envelope(t, total, 0.01, 0.18) * 0.9
         noise = (rng.random() * 2 - 1) * 0.4
-        # thumps
         thump_freq = 80 + 10 * math.sin(2 * math.pi * 6 * t)
         thump = math.sin(2 * math.pi * thump_freq * t) * 0.5
         wobble = math.sin(2 * math.pi * (220 + 30 * math.sin(2 * math.pi * 14 * t)) * t) * 0.18
@@ -105,7 +104,6 @@ def gen_deny() -> None:
     for i in range(n):
         t = i / SR
         env = envelope(t, total, 0.004, 0.06) * 0.8
-        # detuned low pair reads as a flat "nope" without being harsh
         body = math.sin(2 * math.pi * 140 * t) * math.exp(-16 * t)
         rub = math.sin(2 * math.pi * 148 * t) * math.exp(-16 * t)
         samples.append((body + rub) * 0.5 * env)

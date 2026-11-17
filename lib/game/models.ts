@@ -1,8 +1,6 @@
-/** Standard Flip10 rules: 10 tiles, 2 dice. */
 export const TILE_COUNT = 10;
 export const DICE_COUNT = 2;
 
-/** Rerolls granted each round. */
 export const REROLLS_PER_ROUND = 1;
 
 export type GamePhase =

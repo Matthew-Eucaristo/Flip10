@@ -22,7 +22,6 @@ export function randomRoll(): DiceRoll {
   };
 }
 
-/** Sole writer of GameSnapshot. UI subscribes and renders each new snapshot. */
 export class GameController {
   private snapshot: GameSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -69,7 +68,6 @@ export class GameController {
     this.applyRoll(this.diceRoller(), this.snapshot.rerollsLeft - 1);
   }
 
-  /** Returns true when the tap changed the selection. */
   toggleTile(tile: number): boolean {
     const player = activePlayer(this.snapshot);
     if (this.snapshot.phase !== "choosingTiles" || !player.openTiles.has(tile)) {
